@@ -10,8 +10,8 @@ UNIT_TEST_CMD := ./scripts/check/unit-test.sh
 INTEGRATION_TEST_CMD := ./scripts/check/integration-test.sh
 CHECK_CMD := ./scripts/check/check.sh
 
-DEV_IMAGE_NAME := slok/k8s-webhook-example-dev
-PROD_IMAGE_NAME ?=  slok/k8s-webhook-example
+DEV_IMAGE_NAME := d-hayashi/k8s-slurm-injector-dev
+PROD_IMAGE_NAME ?=  d-hayashi/k8s-slurm-injector
 
 DOCKER_RUN_CMD := docker run --env ostype=$(OSTYPE) -v ${PWD}:/src --rm -it ${DEV_IMAGE_NAME}
 BUILD_BINARY_CMD := VERSION=${VERSION} ./scripts/build/build.sh

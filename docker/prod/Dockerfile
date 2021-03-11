@@ -17,5 +17,5 @@ RUN ./scripts/build/build.sh
 FROM alpine:latest
 RUN apk --no-cache add \
     ca-certificates
-COPY --from=build-stage /src/bin/k8s-webhook-example /usr/local/bin/k8s-webhook-example
-ENTRYPOINT ["/usr/local/bin/k8s-webhook-example"]
+COPY --from=build-stage /src/bin/k8s-slurm-injector /usr/local/bin/k8s-slurm-injector
+ENTRYPOINT ["/usr/local/bin/k8s-slurm-injector"]

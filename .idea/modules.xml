@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/go-trials.iml" filepath="$PROJECT_DIR$/.idea/go-trials.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/k8s-slurm-injector.iml" filepath="$PROJECT_DIR$/.idea/k8s-slurm-injector.iml" />
     </modules>
   </component>
 </project>

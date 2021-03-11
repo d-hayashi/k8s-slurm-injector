@@ -16,7 +16,7 @@ The example tries showing these:
 
 The application is mainly structured in 3 parts:
 
-- `main`: This is where everything is created, wired, configured and set up, [cmd/k8s-webhook-example](cmd/k8s-webhook-example/main.go).
+- `main`: This is where everything is created, wired, configured and set up, [cmd/k8s-webhook-example](cmd/k8s-slurm-injector/main.go).
 - `http`: This is the package that configures the HTTP server, wires the routes and the webhook handlers. [internal/http/webhook](internal/http/webhook).
 - Application services: These services have the domain logic of the validators and mutators:
   - [`mutation/mark`](internal/mutation/mark): Logic for `all-mark-webhook.slok.dev` webhook.
@@ -27,7 +27,7 @@ Apart from the webhook refering stuff we have other parts like:
 
 - [Decoupled metrics](internal/metrics)
 - [Decoupled logger](internal/log)
-- [Application command line flags](cmd/k8s-webhook-example/config.go)
+- [Application command line flags](cmd/k8s-slurm-injector/config.go)
 
 And finally there is an example of how we could deploy our webhooks on a production server:
 

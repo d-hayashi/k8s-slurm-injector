@@ -2,7 +2,7 @@ version: '3.7'
 
 services:
   go:
-    image: d-hayashi/go-trials:latest
+    image: d-hayashi/k8s-slurm-injector:latest
     build:
       context: .
       dockerfile: docker/dev/Dockerfile
