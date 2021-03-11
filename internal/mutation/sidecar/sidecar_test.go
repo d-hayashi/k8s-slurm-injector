@@ -31,8 +31,8 @@ func TestLabelMarkerMark(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test",
 					Labels: map[string]string{
-						"test1": "value1",
-						"test2": "value2",
+						"test1":                     "value1",
+						"test2":                     "value2",
 						"k8s-slurm-injector/status": "injected",
 					},
 				},

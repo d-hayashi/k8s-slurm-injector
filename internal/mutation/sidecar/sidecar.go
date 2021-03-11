@@ -2,6 +2,7 @@ package sidecar
 
 import (
 	"context"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -16,7 +17,7 @@ func NewSidecarInjector() SidecarInjector {
 	return sidecarinjector{}
 }
 
-type sidecarinjector struct {}
+type sidecarinjector struct{}
 
 func (s sidecarinjector) Inject(_ context.Context, obj metav1.Object) error {
 	// Missing generics...
