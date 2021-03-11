@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: k8s-slurm-injector
+  namespace: k8s-slurm-injector
+  labels:
+    app: k8s-slurm-injector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: k8s-slurm-injector
+  template:
+    metadata:
+      labels:
+        app: k8s-slurm-injector
+    spec:
+      containers:
+        - name: k8s-slurm-injector
+          image: slok/k8s-slurm-injector:latest
+          imagePullPolicy: Always
+          args:
+            - --tls-cert-file-path=/etc/webhook/certs/cert.pem
+            - --tls-key-file-path=/etc/webhook/certs/key.pem
+            - --webhook-label-marks
+            - kubewebhook=k8s-slurm-injector
+            - --webhook-sm-min-scrape-interval=15s
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: metrics
+              containerPort: 8081
+              protocol: TCP
+          readinessProbe:
+            periodSeconds: 15
+            httpGet:
+              path: /healthz
+              port: metrics
+          volumeMounts:
+            - name: webhook-certs
+              mountPath: /etc/webhook/certs
+              readOnly: true
+      volumes:
+        - name: webhook-certs
+          secret:
+            secretName: k8s-slurm-injector-certs
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: k8s-slurm-injector
+  namespace: k8s-slurm-injector
+  labels:
+    app: k8s-slurm-injector
+spec:
+  ports:
+  - name: http
+    port: 443
+    targetPort: 8080
+  - name: metrics
+    port: 8081
+    targetPort: 8081
+  selector:
+    app: k8s-slurm-injector
+
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  labels:
+    app: k8s-slurm-injector
+    prometheus: prometheus
+  name: k8s-slurm-injector
+  namespace: k8s-slurm-injector
+spec:
+  endpoints:
+  - port: metrics
+  selector:
+    matchLabels:
+      app: k8s-slurm-injector
