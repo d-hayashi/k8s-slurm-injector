@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: k8s-slurm-injector
-          image: slok/k8s-slurm-injector:latest
+          image: dhayashi/k8s-slurm-injector:latest
           imagePullPolicy: Always
           args:
             - --tls-cert-file-path=/etc/webhook/certs/cert.pem
