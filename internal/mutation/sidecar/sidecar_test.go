@@ -6,6 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	batchv1 "k8s.io/api/batch/v1"
+	batchv1beta1 "k8s.io/api/batch/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -22,8 +24,9 @@ func TestLabelMarkerMark(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test",
 					Labels: map[string]string{
-						"test1": "value1",
-						"test2": "value2",
+						"test1":                        "value1",
+						"test2":                        "value2",
+						"k8s-slurm-injector/injection": "enabled",
 					},
 				},
 			},
@@ -31,15 +34,39 @@ func TestLabelMarkerMark(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test",
 					Labels: map[string]string{
-						"test1":                     "value1",
-						"test2":                     "value2",
-						"k8s-slurm-injector/status": "injected",
+						"test1":                        "value1",
+						"test2":                        "value2",
+						"k8s-slurm-injector/injection": "enabled",
+						"k8s-slurm-injector/status":    "injected",
 					},
 				},
 			},
 		},
 
-		"Having a pod without labels, the labels should be mutated.": {
+		"Having a pod with labels without injection, the labels should not be mutated.": {
+			obj: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test",
+					Labels: map[string]string{
+						"test1":                        "value1",
+						"test2":                        "value2",
+						"k8s-slurm-injector/injection": "disabled",
+					},
+				},
+			},
+			expObj: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test",
+					Labels: map[string]string{
+						"test1":                        "value1",
+						"test2":                        "value2",
+						"k8s-slurm-injector/injection": "disabled",
+					},
+				},
+			},
+		},
+
+		"Having a pod without labels, the labels should not be mutated.": {
 			obj: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test",
@@ -48,14 +75,35 @@ func TestLabelMarkerMark(t *testing.T) {
 			expObj: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test",
+				},
+			},
+		},
+
+		"Having a job, the labels should be mutated.": {
+			obj: &batchv1.Job{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test",
 					Labels: map[string]string{
-						"k8s-slurm-injector/status": "injected",
+						"test1":                        "value1",
+						"test2":                        "value2",
+						"k8s-slurm-injector/injection": "enabled",
+					},
+				},
+			},
+			expObj: &batchv1.Job{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test",
+					Labels: map[string]string{
+						"test1":                        "value1",
+						"test2":                        "value2",
+						"k8s-slurm-injector/injection": "enabled",
+						"k8s-slurm-injector/status":    "injected",
 					},
 				},
 			},
 		},
 
-		"Having a service, the labels should be mutated.": {
+		"Having a service, the labels should not be mutated.": {
 			obj: &corev1.Service{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test",
@@ -79,7 +127,17 @@ func TestLabelMarkerMark(t *testing.T) {
 			err := injector.Inject(context.TODO(), test.obj)
 			require.NoError(err)
 
-			assert.Equal(test.expObj, test.obj)
+			switch test.obj.(type) {
+			case *corev1.Pod:
+				assert.Equal(test.expObj.(*corev1.Pod).ObjectMeta, test.obj.(*corev1.Pod).ObjectMeta)
+			case *batchv1.Job:
+				assert.Equal(test.expObj.(*batchv1.Job).ObjectMeta, test.obj.(*batchv1.Job).ObjectMeta)
+			case *batchv1beta1.CronJob:
+				assert.Equal(test.expObj.(*batchv1beta1.CronJob).ObjectMeta, test.obj.(*batchv1beta1.CronJob).ObjectMeta)
+			default:
+				assert.Equal(test.expObj, test.obj)
+			}
+
 		})
 	}
 }

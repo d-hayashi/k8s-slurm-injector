@@ -68,7 +68,7 @@ ci-check:  ## Runs checks in CI environment (without docker).
 	@$(CHECK_CMD)
 
 .PHONY: ci-integration-test
-ci-integration: ## Runs integraton test in CI environment (without docker).
+ci-integration: ## Runs integration test in CI environment (without docker).
 	@$(INTEGRATION_TEST_CMD)
 
 .PHONY: gen-deploy-certs
