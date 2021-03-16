@@ -31,6 +31,40 @@ func (l kubewebhookLogger) WithCtx(ctx context.Context) kwhlog.Logger {
 	return l.WithValues(kwhlog.ValuesFromCtx(ctx))
 }
 
+// injectSidecar sets up the webhook handler for injecting sidecars for slurm using Kubewebhook library.
+func (h handler) injectSidecar() (http.Handler, error) {
+	mt := kwhmutating.MutatorFunc(func(ctx context.Context, ar *kwhmodel.AdmissionReview, obj metav1.Object) (*kwhmutating.MutatorResult, error) {
+		err := h.sidecar.Inject(ctx, obj)
+		if err != nil {
+			return nil, fmt.Errorf("could not inject sidecars with the resource: %w", err)
+		}
+
+		return &kwhmutating.MutatorResult{
+			MutatedObject: obj,
+			Warnings:      []string{"Sidecars injected with the resource"},
+		}, nil
+	})
+
+	logger := kubewebhookLogger{Logger: h.logger.WithKV(log.KV{"lib": "kubewebhook", "webhook": "slurmInjection"})}
+	wh, err := kwhmutating.NewWebhook(kwhmutating.WebhookConfig{
+		ID:      "slurmInjection",
+		Logger:  logger,
+		Mutator: mt,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("could not create webhook: %w", err)
+	}
+	whHandler, err := kwhhttp.HandlerFor(kwhhttp.HandlerConfig{
+		Webhook: kwhwebhook.NewMeasuredWebhook(h.metrics, wh),
+		Logger:  logger,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("could not create handler from webhook: %w", err)
+	}
+
+	return whHandler, nil
+}
+
 // allmark sets up the webhook handler for marking all kubernetes resources using Kubewebhook library.
 func (h handler) allMark() (http.Handler, error) {
 	mt := kwhmutating.MutatorFunc(func(ctx context.Context, ar *kwhmodel.AdmissionReview, obj metav1.Object) (*kwhmutating.MutatorResult, error) {

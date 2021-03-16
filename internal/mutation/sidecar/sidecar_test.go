@@ -39,6 +39,22 @@ func TestLabelMarkerMark(t *testing.T) {
 			},
 		},
 
+		"Having a pod without labels, the labels should be mutated.": {
+			obj: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test",
+				},
+			},
+			expObj: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test",
+					Labels: map[string]string{
+						"k8s-slurm-injector/status": "injected",
+					},
+				},
+			},
+		},
+
 		"Having a service, the labels should be mutated.": {
 			obj: &corev1.Service{
 				ObjectMeta: metav1.ObjectMeta{

@@ -6,6 +6,7 @@ import (
 
 	"github.com/d-hayashi/k8s-slurm-injector/internal/log"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/mutation/mark"
+	"github.com/d-hayashi/k8s-slurm-injector/internal/mutation/sidecar"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/mutation/prometheus"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/validation/ingress"
 )
@@ -14,6 +15,7 @@ import (
 type Config struct {
 	MetricsRecorder            MetricsRecorder
 	Marker                     mark.Marker
+	SidecarInjector            sidecar.SidecarInjector
 	IngressRegexHostValidator  ingress.Validator
 	IngressSingleHostValidator ingress.Validator
 	ServiceMonitorSafer        prometheus.ServiceMonitorSafer
@@ -23,6 +25,10 @@ type Config struct {
 func (c *Config) defaults() error {
 	if c.Marker == nil {
 		return fmt.Errorf("marker is required")
+	}
+
+	if c.SidecarInjector == nil {
+		return fmt.Errorf("sidecar injector is required")
 	}
 
 	if c.IngressRegexHostValidator == nil {
@@ -50,6 +56,7 @@ func (c *Config) defaults() error {
 
 type handler struct {
 	marker           mark.Marker
+	sidecar          sidecar.SidecarInjector
 	ingRegexHostVal  ingress.Validator
 	ingSingleHostVal ingress.Validator
 	servMonSafer     prometheus.ServiceMonitorSafer
@@ -70,6 +77,7 @@ func New(config Config) (http.Handler, error) {
 	h := handler{
 		handler:          mux,
 		marker:           config.Marker,
+		sidecar:          config.SidecarInjector,
 		ingRegexHostVal:  config.IngressRegexHostValidator,
 		ingSingleHostVal: config.IngressSingleHostValidator,
 		servMonSafer:     config.ServiceMonitorSafer,
