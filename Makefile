@@ -17,7 +17,9 @@ DOCKER_RUN_CMD := docker run --env ostype=$(OSTYPE) -v ${PWD}:/src --rm -it ${DE
 BUILD_BINARY_CMD := VERSION=${VERSION} ./scripts/build/build.sh
 BUILD_DEV_IMAGE_CMD := IMAGE=${DEV_IMAGE_NAME} DOCKER_FILE_PATH=./docker/dev/Dockerfile VERSION=latest ./scripts/build/build-image.sh
 BUILD_PROD_IMAGE_CMD := IMAGE=${PROD_IMAGE_NAME} DOCKER_FILE_PATH=./docker/prod/Dockerfile VERSION=${VERSION} ./scripts/build/build-image.sh
+BUILD_SSH_IMAGE_CMD := IMAGE=${PROD_IMAGE_NAME} DOCKER_FILE_PATH=./docker/ssh/Dockerfile VERSION=ssh-client ./scripts/build/build-image.sh
 PUBLISH_PROD_IMAGE_CMD := IMAGE=${PROD_IMAGE_NAME} VERSION=${VERSION} ./scripts/build/publish-image.sh
+PUBLISH_SSH_IMAGE_CMD := IMAGE=${PROD_IMAGE_NAME} VERSION=ssh-client ./scripts/build/publish-image.sh
 GEN_CERTS_CMD := ./scripts/gen-certs.sh
 
 
@@ -28,9 +30,17 @@ help: ## Show this help
 .PHONY: default
 default: help
 
+.PHONY: build-ssh-image
+build-ssh-image: ## Builds the ssh docker image.
+	@$(BUILD_SSH_IMAGE_CMD)
+
 .PHONY: build-image
 build-image: ## Builds the production docker image.
 	@$(BUILD_PROD_IMAGE_CMD)
+
+.PHONY: publish-ssh-image
+publish-ssh-image: ##Publishes the ssh docker image.
+	@$(PUBLISH_SSH_IMAGE_CMD)
 
 .PHONY: publish-image
 publish-image: ##Publishes the production docker image.
