@@ -19,8 +19,8 @@ import (
 	"github.com/d-hayashi/k8s-slurm-injector/internal/log"
 	internalmetricsprometheus "github.com/d-hayashi/k8s-slurm-injector/internal/metrics/prometheus"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/mutation/mark"
-	"github.com/d-hayashi/k8s-slurm-injector/internal/mutation/sidecar"
 	internalmutationprometheus "github.com/d-hayashi/k8s-slurm-injector/internal/mutation/prometheus"
+	"github.com/d-hayashi/k8s-slurm-injector/internal/mutation/sidecar"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/validation/ingress"
 )
 
@@ -49,8 +49,7 @@ func runApp() error {
 	// Dependencies.
 	metricsRec := internalmetricsprometheus.NewRecorder(prometheus.DefaultRegisterer)
 
-	var sidecarInjector sidecar.SidecarInjector
-	sidecarInjector = sidecar.NewSidecarInjector()
+	sidecarInjector := sidecar.NewSidecarInjector()
 	logger.Infof("sidecar injector webhook enabled")
 
 	var marker mark.Marker
