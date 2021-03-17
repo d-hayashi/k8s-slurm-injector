@@ -22,12 +22,16 @@ spec:
           args:
             - --tls-cert-file-path=/etc/webhook/certs/cert.pem
             - --tls-key-file-path=/etc/webhook/certs/key.pem
+            - --webhook-ssh-destination=
           ports:
             - name: http
               containerPort: 8080
               protocol: TCP
             - name: metrics
               containerPort: 8081
+              protocol: TCP
+            - name: slurm
+              containerPort: 8082
               protocol: TCP
           readinessProbe:
             periodSeconds: 15
@@ -38,10 +42,18 @@ spec:
             - name: webhook-certs
               mountPath: /etc/webhook/certs
               readOnly: true
+            - name: ssh-id-rsa
+              mountPath: /root/.ssh/id_rsa
+              subPath: id_rsa
+              readOnly: true
       volumes:
         - name: webhook-certs
           secret:
             secretName: k8s-slurm-injector-certs
+        - name: ssh-id-rsa
+          secret:
+            secretName: k8s-slurm-injector-ssh-id-rsa
+            defaultMode: 256
 ---
 apiVersion: v1
 kind: Service
@@ -58,6 +70,9 @@ spec:
   - name: metrics
     port: 8081
     targetPort: 8081
+  - name: slurm
+    port: 8082
+    targetPort: 8082
   selector:
     app: k8s-slurm-injector
 

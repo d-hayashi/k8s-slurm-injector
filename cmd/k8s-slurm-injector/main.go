@@ -15,6 +15,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 
+	"github.com/d-hayashi/k8s-slurm-injector/internal/http/slurm"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/http/webhook"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/log"
 	internalmetricsprometheus "github.com/d-hayashi/k8s-slurm-injector/internal/metrics/prometheus"
@@ -49,8 +50,14 @@ func runApp() error {
 	// Dependencies.
 	metricsRec := internalmetricsprometheus.NewRecorder(prometheus.DefaultRegisterer)
 
-	sidecarInjector := sidecar.NewSidecarInjector()
-	logger.Infof("sidecar injector webhook enabled")
+	var sidecarInjector sidecar.SidecarInjector
+	if cfg.SSHDestination != "" {
+		sidecarInjector = sidecar.NewSidecarInjector()
+		logger.Infof("sidecar injector webhook enabled")
+	} else {
+		sidecarInjector = sidecar.DummySidecarInjector
+		logger.Warningf("sidecar injector webhook disabled")
+	}
 
 	var marker mark.Marker
 	if len(cfg.LabelMarks) > 0 {
@@ -188,6 +195,44 @@ func runApp() error {
 
 				logger.Infof("https server listening...")
 				return server.ListenAndServeTLS(cfg.TLSCertFilePath, cfg.TLSKeyFilePath)
+			},
+			func(_ error) {
+				logger.Infof("start draining connections")
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+
+				err := server.Shutdown(ctx)
+				if err != nil {
+					logger.Errorf("error while shutting down the server: %s", err)
+				} else {
+					logger.Infof("server stopped")
+				}
+			},
+		)
+	}
+
+	// Slurm HTTP server.
+	{
+		logger := logger.WithKV(log.KV{"addr": cfg.SlurmListenAddr, "http-server": "slurm"})
+
+		// Slurm handler
+		wh, err := slurm.New(slurm.Config{
+			SSHDestination: cfg.SSHDestination,
+			SSHPort:        cfg.SSHPort,
+			Logger:         logger,
+		})
+		if err != nil {
+			return fmt.Errorf("could not create webhooks handler: %w", err)
+		}
+
+		mux := http.NewServeMux()
+		mux.Handle("/", wh)
+		server := http.Server{Addr: cfg.SlurmListenAddr, Handler: mux}
+
+		g.Add(
+			func() error {
+				logger.Infof("http server listening...")
+				return server.ListenAndServe()
 			},
 			func(_ error) {
 				logger.Infof("start draining connections")

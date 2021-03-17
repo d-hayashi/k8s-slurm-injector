@@ -42,70 +42,36 @@ func (s sidecarinjector) Inject(_ context.Context, obj metav1.Object) error {
 	}
 
 	// Check labels
-	sshUser := ""
-	sshHost := ""
-	sshPort := "22"
 	isInjection := false
 	for key, value := range labels {
 		if key == "k8s-slurm-injector/injection" && value == "enabled" {
 			isInjection = true
 		}
-		if key == "k8s-slurm-injector/ssh-user" {
-			sshUser = value
-		}
-		if key == "k8s-slurm-injector/ssh-host" {
-			sshHost = value
-		}
-		if key == "k8s-slurm-injector/ssh-port" {
-			sshPort = value
-		}
 	}
 	if !isInjection {
 		return nil
 	}
-	if sshUser == "" {
-		return fmt.Errorf("label 'k8s-slurm-injector/ssh-user' is required")
-	}
-	if sshHost == "" {
-		return fmt.Errorf("label 'k8s-slurm-injector/ssh-host' is required")
-	}
-
-	sshDestination := sshUser + "@" + sshHost
 
 	// Add init-container
 	initContainer := corev1.Container{
 		Name:  "initial-container",
-		Image: "dhayashi/k8s-slurm-injector:ssh-client",
+		Image: "curlimages/curl:7.75.0",
 		Command: []string{
-			"ssh",
-			"-o",
-			"StrictHostKeyChecking=no",
-			"-i",
-			"/root/.ssh/id_rsa",
-			sshDestination,
-			"-p",
-			sshPort,
+			"curl",
 		},
-		Args:            []string{"squeue"},
+		Args:            []string{},		// TODO: add webhook URL
 		ImagePullPolicy: "IfNotPresent",
 		VolumeMounts: []corev1.VolumeMount{
 			{
-				Name:      "k8s-slurm-injector-ssh-id-rsa",
-				MountPath: "/root/.ssh/id_rsa",
-				SubPath:   "id_rsa",
-				ReadOnly:  true,
+				Name:      "k8s-slurm-injector-shared",
+				MountPath: "/k8s-slurm-injector",
 			},
 		},
 	}
-	mode := int32(256) // 400 = (4 * 8^2) + (4 * 8^1) + (4 * 8^0) = (4 * 64) + (0 * 8) + (0 * 1) = 256 + 0 + 0 = 256
-	mode1 := &mode
 	volume := corev1.Volume{
-		Name: "k8s-slurm-injector-ssh-id-rsa",
+		Name: "k8s-slurm-injector-shared",
 		VolumeSource: corev1.VolumeSource{
-			Secret: &corev1.SecretVolumeSource{
-				SecretName:  "k8s-slurm-injector-ssh-id-rsa",
-				DefaultMode: mode1,
-			},
+			EmptyDir: &corev1.EmptyDirVolumeSource{},
 		},
 	}
 
