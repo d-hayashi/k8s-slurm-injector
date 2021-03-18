@@ -5,9 +5,11 @@ metadata:
   labels:
     k8s-slurm-injector/injection: enabled
 spec:
+  shareProcessNamespace: true
   containers:
     - name: busybox
-      image: busybox
+      image: curlimages/curl:7.75.0
       args:
         - sleep
         - "100"
+  restartPolicy: OnFailure

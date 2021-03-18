@@ -40,7 +40,7 @@ func NewJobInformation() *JobInformation {
 		Ntasks:    "1",
 		Ncpus:     "1",
 		Gres:      "",
-		Time:      "3600",
+		Time:      "1440",
 		Name:      "",
 	}
 	return &jobInfo
@@ -116,10 +116,28 @@ func (s sidecarinjector) constructSbatchURL(slurmWebhookURL string, jobInfo JobI
 }
 
 func (s sidecarinjector) mutateObject(obj metav1.Object) error {
+	// Get pod-spec
+	var podSpec corev1.PodSpec
+
+	switch v := obj.(type) {
+	case *corev1.Pod:
+		podSpec = v.Spec
+	case *batchv1.Job:
+		podSpec = v.Spec.Template.Spec
+	case *batchv1beta1.CronJob:
+		podSpec = v.Spec.JobTemplate.Spec.Template.Spec
+	default:
+		return fmt.Errorf("unsupported type")
+	}
+
 	// Construct sbatch URL
 	slurmWebhookURL := s.getSlurmWebhookURL()
 	jobInfo := s.getJobInformation(obj)
 	sbatchURL := s.constructSbatchURL(slurmWebhookURL, jobInfo)
+
+	// Enable shareProcessNamespace
+	shareProcessNamespace := true
+	podSpec.ShareProcessNamespace = &shareProcessNamespace
 
 	// Add init-container
 	initContainer := corev1.Container{
@@ -129,7 +147,7 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 		Args: []string{
 			fmt.Sprintf("set -x ; slurmWebhookURL=\"%s\" && sbatchURL=\"%s\" && ", slurmWebhookURL, sbatchURL) +
 				"jobid=$(curl -s ${sbatchURL}) && " +
-				"echo ${sbatchURL} > /k8s-slurm-injector/jobid && " +
+				"echo ${jobid} > /k8s-slurm-injector/jobid && " +
 				"while true; " +
 				"do " +
 				"sleep 1; " +
@@ -147,39 +165,75 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 			},
 		},
 	}
+	podSpec.InitContainers = append([]corev1.Container{initContainer}, podSpec.InitContainers...)
 
-	//// Add sidecar
-	//sidecar := corev1.Container{
-	//	Name:    "slurm-watcher",
-	//	Image:   "curlimages/curl:7.75.0",
-	//	Command: []string{"/bin/sh", "-c"},
-	//	Args: []string{
-	//		fmt.Sprintf("slurmWebhookURL=%s; ", slurmWebhookURL) +
-	//			"[[ ! -f /k8s-slurm-injector/jobid ]] && exit 1; " +
-	//			"jobid=$(cat /k8s-slurm-injector/jobid); " +
-	//			"[[ $jobid = \"\" ]] && exit 1; " +
-	//			"trap 'echo \"Killing...\"' SIGHUP SIGINT SIGQUIT SIGTERM; " +
-	//			"echo \"Watching...  Pid=$$\"; " +
-	//			"(" +
-	//			"while true; " +
-	//			"do " +
-	//			"sleep 60; " +
-	//			"state=$(curl -s ${slurmWebhookURL}/slurm/state?jobid=${jobid}); " +
-	//			"[[ \"$state\" = \"PENDING\" ]] && exit 1; " +
-	//			"[[ \"$state\" = \"RUNNING\" ]] && continue; " +
-	//			"[[ \"$state\" = \"CANCELLED\" ]] && exit 1; " +
-	//			"done" +
-	//			")& " +
-	//			"wait $!",
-	//	},
-	//	ImagePullPolicy: "IfNotPresent",
-	//	VolumeMounts: []corev1.VolumeMount{
-	//		{
-	//			Name:      "k8s-slurm-injector-shared",
-	//			MountPath: "/k8s-slurm-injector",
-	//		},
-	//	},
-	//}
+	// Add hooks to get main container-id
+	for i := range podSpec.Containers {
+		lifecycle := corev1.Lifecycle{
+			PostStart: &corev1.Handler{
+				Exec: &corev1.ExecAction{Command: []string{
+					"/bin/sh",
+					"-c",
+					fmt.Sprintf(
+						"cat /proc/self/cgroup "+
+							"| grep cpuset: "+
+							"| awk '{n=split($1,A,\"/\"); print A[n]}'"+
+							"> /k8s-slurm-injector/container_id_%d",
+						i),
+				}},
+			},
+		}
+		volumeMount := corev1.VolumeMount{
+			Name:      "k8s-slurm-injector-shared",
+			MountPath: "/k8s-slurm-injector",
+		}
+		podSpec.Containers[i].Lifecycle = &lifecycle
+		podSpec.Containers[i].VolumeMounts = append(podSpec.Containers[i].VolumeMounts, volumeMount)
+	}
+
+	// Add sidecar
+	sidecar := corev1.Container{
+		Name:    "slurm-watcher",
+		Image:   "curlimages/curl:7.75.0",
+		Command: []string{"/bin/sh", "-c"},
+		Args: []string{
+			fmt.Sprintf(
+				"set -x; "+
+					"url=%s; "+
+					"jobid=$(cat /k8s-slurm-injector/jobid); "+
+					"[[ $jobid = \"\" ]] && echo 'Failed to get job-id' >&2 && exit 1; " +
+					"getState() { curl -s \"${url}/slurm/state?jobid=${jobid}\"; }; "+
+					"scancel() { curl -s \"${url}/slurm/scancel?jobid=${jobid}\"; }; "+
+					"trap 'scancel' SIGHUP SIGINT SIGQUIT SIGTERM ; "+
+					"count=0; "+
+					"while $count<10; "+
+					"do "+
+					"[[ -f /k8s-slurm-injector/container_id_0 ]] && break; "+
+					"count=$((count+1)); "+
+					"done; "+
+					"[[ $count -ge 10 ]] && exit 1; "+
+					"cid=$(cat /k8s-slurm-injector/container_id_0); "+
+					"[[ $cid = \"\" ]] && (echo 'Failed to get container_id' >&2; scancel) && exit 1; "+
+					"while true; " +
+					"do " +
+					"sleep 1; " +
+					"cat /proc/*/cgroup | grep ${cid} || break; " +
+					"state=$(getState); "+
+					"[[ \"$state\" = \"COMPLETING\" ]] && break; "+
+					"[[ \"$state\" = \"CANCELLED\" ]] && break; "+
+					"done; "+
+					"scancel",
+				slurmWebhookURL),
+		},
+		ImagePullPolicy: "IfNotPresent",
+		VolumeMounts: []corev1.VolumeMount{
+			{
+				Name:      "k8s-slurm-injector-shared",
+				MountPath: "/k8s-slurm-injector",
+			},
+		},
+	}
+	podSpec.Containers = append(podSpec.Containers, sidecar)
 
 	// Add volume
 	volume := corev1.Volume{
@@ -188,20 +242,15 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 			EmptyDir: &corev1.EmptyDirVolumeSource{},
 		},
 	}
+	podSpec.Volumes = append([]corev1.Volume{volume}, podSpec.Volumes...)
 
 	switch v := obj.(type) {
 	case *corev1.Pod:
-		v.Spec.InitContainers = append([]corev1.Container{initContainer}, v.Spec.InitContainers...)
-		v.Spec.Volumes = append([]corev1.Volume{volume}, v.Spec.Volumes...)
+		v.Spec = podSpec
 	case *batchv1.Job:
-		v.Spec.Template.Spec.InitContainers =
-			append([]corev1.Container{initContainer}, v.Spec.Template.Spec.InitContainers...)
-		v.Spec.Template.Spec.Volumes = append([]corev1.Volume{volume}, v.Spec.Template.Spec.Volumes...)
+		v.Spec.Template.Spec = podSpec
 	case *batchv1beta1.CronJob:
-		v.Spec.JobTemplate.Spec.Template.Spec.InitContainers =
-			append([]corev1.Container{initContainer}, v.Spec.JobTemplate.Spec.Template.Spec.InitContainers...)
-		v.Spec.JobTemplate.Spec.Template.Spec.Volumes =
-			append([]corev1.Volume{volume}, v.Spec.JobTemplate.Spec.Template.Spec.Volumes...)
+		v.Spec.JobTemplate.Spec.Template.Spec = podSpec
 	default:
 		return fmt.Errorf("unsupported type")
 	}

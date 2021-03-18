@@ -107,6 +107,36 @@ func TestLabelMarkerMark(t *testing.T) {
 			},
 		},
 
+		"Having a pod with containers": {
+			obj: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test",
+					Labels: map[string]string{
+						"k8s-slurm-injector/injection": "enabled",
+					},
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "container-1",
+							Image: "image",
+						},
+					},
+				},
+			},
+			expObj: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test",
+					Labels: map[string]string{
+						"k8s-slurm-injector/injection": "enabled",
+					},
+					Annotations: map[string]string{
+						"k8s-slurm-injector/status": "injected",
+					},
+				},
+			},
+		},
+
 		"Having a service, the labels should not be mutated.": {
 			obj: &corev1.Service{
 				ObjectMeta: metav1.ObjectMeta{
@@ -134,6 +164,10 @@ func TestLabelMarkerMark(t *testing.T) {
 			switch test.obj.(type) {
 			case *corev1.Pod:
 				assert.Equal(test.expObj.(*corev1.Pod).ObjectMeta, test.obj.(*corev1.Pod).ObjectMeta)
+				if len(test.obj.(*corev1.Pod).Spec.Containers) > 1 {
+					assert.NotEmpty(test.obj.(*corev1.Pod).Spec.Containers[0].Lifecycle)
+					assert.True(*test.obj.(*corev1.Pod).Spec.ShareProcessNamespace)
+				}
 			case *batchv1.Job:
 				assert.Equal(test.expObj.(*batchv1.Job).ObjectMeta, test.obj.(*batchv1.Job).ObjectMeta)
 			case *batchv1beta1.CronJob:
