@@ -123,12 +123,13 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 
 	// Add init-container
 	initContainer := corev1.Container{
-		Name:    "initial-container",
+		Name:    "slurm-injector",
 		Image:   "curlimages/curl:7.75.0",
 		Command: []string{"/bin/sh", "-c"},
 		Args: []string{
 			fmt.Sprintf("slurmWebhookURL=%s && sbatchURL=%s &&", slurmWebhookURL, sbatchURL) +
 				"jobid=$(curl -s ${sbatchURL}) && " +
+				"echo ${sbatchURL} > /k8s-slurm-injector/jobid && " +
 				"while true; " +
 				"do " +
 				"sleep 1; " +
@@ -146,6 +147,41 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 			},
 		},
 	}
+
+	//// Add sidecar
+	//sidecar := corev1.Container{
+	//	Name:    "slurm-watcher",
+	//	Image:   "curlimages/curl:7.75.0",
+	//	Command: []string{"/bin/sh", "-c"},
+	//	Args: []string{
+	//		fmt.Sprintf("slurmWebhookURL=%s; ", slurmWebhookURL) +
+	//			"[[ ! -f /k8s-slurm-injector/jobid ]] && exit 1; " +
+	//			"jobid=$(cat /k8s-slurm-injector/jobid); " +
+	//			"[[ $jobid = \"\" ]] && exit 1; " +
+	//			"trap 'echo \"Killing...\"' SIGHUP SIGINT SIGQUIT SIGTERM; " +
+	//			"echo \"Watching...  Pid=$$\"; " +
+	//			"(" +
+	//			"while true; " +
+	//			"do " +
+	//			"sleep 60; " +
+	//			"state=$(curl -s ${slurmWebhookURL}/slurm/state?jobid=${jobid}); " +
+	//			"[[ \"$state\" = \"PENDING\" ]] && exit 1; " +
+	//			"[[ \"$state\" = \"RUNNING\" ]] && continue; " +
+	//			"[[ \"$state\" = \"CANCELLED\" ]] && exit 1; " +
+	//			"done" +
+	//			")& " +
+	//			"wait $!",
+	//	},
+	//	ImagePullPolicy: "IfNotPresent",
+	//	VolumeMounts: []corev1.VolumeMount{
+	//		{
+	//			Name:      "k8s-slurm-injector-shared",
+	//			MountPath: "/k8s-slurm-injector",
+	//		},
+	//	},
+	//}
+
+	// Add volume
 	volume := corev1.Volume{
 		Name: "k8s-slurm-injector-shared",
 		VolumeSource: corev1.VolumeSource{

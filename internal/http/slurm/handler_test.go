@@ -2,12 +2,13 @@ package slurm
 
 import (
 	"bytes"
-	"github.com/d-hayashi/k8s-slurm-injector/internal/mutation/sidecar"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/d-hayashi/k8s-slurm-injector/internal/mutation/sidecar"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSbatchHandler_parseQueryParams(t *testing.T) {
