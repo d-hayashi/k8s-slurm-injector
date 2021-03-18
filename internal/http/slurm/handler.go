@@ -165,7 +165,7 @@ func (s JobStateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Write to respond
-	if err != nil {
+	if err == nil {
 		_, err = fmt.Fprint(w, state)
 	}
 
@@ -200,7 +200,7 @@ func (s ScancelHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	out, err = sshCommand.Output()
 
 	// Write to respond
-	if err != nil {
+	if err == nil {
 		_, err = fmt.Fprint(w, string(out))
 	}
 

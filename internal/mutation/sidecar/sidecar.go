@@ -127,7 +127,7 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 		Image:   "curlimages/curl:7.75.0",
 		Command: []string{"/bin/sh", "-c"},
 		Args: []string{
-			fmt.Sprintf("slurmWebhookURL=%s && sbatchURL=%s &&", slurmWebhookURL, sbatchURL) +
+			fmt.Sprintf("set -x ; slurmWebhookURL=\"%s\" && sbatchURL=\"%s\" && ", slurmWebhookURL, sbatchURL) +
 				"jobid=$(curl -s ${sbatchURL}) && " +
 				"echo ${sbatchURL} > /k8s-slurm-injector/jobid && " +
 				"while true; " +
