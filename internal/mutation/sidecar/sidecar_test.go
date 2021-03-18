@@ -2,6 +2,7 @@ package sidecar_test
 
 import (
 	"context"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -14,7 +15,9 @@ import (
 	"github.com/d-hayashi/k8s-slurm-injector/internal/mutation/sidecar"
 )
 
-func TestLabelMarkerMark(t *testing.T) {
+func TestSidecarinjector_Inject(t *testing.T) {
+	cpuResource, _ := resource.ParseQuantity("2")
+	gpuResource, _ := resource.ParseQuantity("1")
 	tests := map[string]struct {
 		obj    metav1.Object
 		expObj metav1.Object
@@ -27,6 +30,7 @@ func TestLabelMarkerMark(t *testing.T) {
 						"test1":                        "value1",
 						"test2":                        "value2",
 						"k8s-slurm-injector/injection": "enabled",
+						"k8s-slurm-injector/node":      "node1",
 					},
 				},
 			},
@@ -37,9 +41,17 @@ func TestLabelMarkerMark(t *testing.T) {
 						"test1":                        "value1",
 						"test2":                        "value2",
 						"k8s-slurm-injector/injection": "enabled",
+						"k8s-slurm-injector/node":      "node1",
 					},
 					Annotations: map[string]string{
-						"k8s-slurm-injector/status": "injected",
+						"k8s-slurm-injector/status":    "injected",
+						"k8s-slurm-injector/partition": "",
+						"k8s-slurm-injector/node":      "node1",
+						"k8s-slurm-injector/ntasks":    "",
+						"k8s-slurm-injector/ncpus":     "1",
+						"k8s-slurm-injector/gres":      "",
+						"k8s-slurm-injector/time":      "",
+						"k8s-slurm-injector/name":      "",
 					},
 				},
 			},
@@ -53,6 +65,7 @@ func TestLabelMarkerMark(t *testing.T) {
 						"test1":                        "value1",
 						"test2":                        "value2",
 						"k8s-slurm-injector/injection": "disabled",
+						"k8s-slurm-injector/node":      "node1",
 					},
 				},
 			},
@@ -63,6 +76,7 @@ func TestLabelMarkerMark(t *testing.T) {
 						"test1":                        "value1",
 						"test2":                        "value2",
 						"k8s-slurm-injector/injection": "disabled",
+						"k8s-slurm-injector/node":      "node1",
 					},
 				},
 			},
@@ -89,6 +103,7 @@ func TestLabelMarkerMark(t *testing.T) {
 						"test1":                        "value1",
 						"test2":                        "value2",
 						"k8s-slurm-injector/injection": "enabled",
+						"k8s-slurm-injector/node":      "node1",
 					},
 				},
 			},
@@ -99,9 +114,17 @@ func TestLabelMarkerMark(t *testing.T) {
 						"test1":                        "value1",
 						"test2":                        "value2",
 						"k8s-slurm-injector/injection": "enabled",
+						"k8s-slurm-injector/node":      "node1",
 					},
 					Annotations: map[string]string{
-						"k8s-slurm-injector/status": "injected",
+						"k8s-slurm-injector/status":    "injected",
+						"k8s-slurm-injector/partition": "",
+						"k8s-slurm-injector/node":      "node1",
+						"k8s-slurm-injector/ntasks":    "",
+						"k8s-slurm-injector/ncpus":     "1",
+						"k8s-slurm-injector/gres":      "",
+						"k8s-slurm-injector/time":      "",
+						"k8s-slurm-injector/name":      "",
 					},
 				},
 			},
@@ -113,6 +136,7 @@ func TestLabelMarkerMark(t *testing.T) {
 					Name: "test",
 					Labels: map[string]string{
 						"k8s-slurm-injector/injection": "enabled",
+						"k8s-slurm-injector/node":      "node1",
 					},
 				},
 				Spec: corev1.PodSpec{
@@ -120,6 +144,12 @@ func TestLabelMarkerMark(t *testing.T) {
 						{
 							Name:  "container-1",
 							Image: "image",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									"cpu": cpuResource,
+									"nvidia.com/gpu": gpuResource,
+								},
+							},
 						},
 					},
 				},
@@ -129,9 +159,17 @@ func TestLabelMarkerMark(t *testing.T) {
 					Name: "test",
 					Labels: map[string]string{
 						"k8s-slurm-injector/injection": "enabled",
+						"k8s-slurm-injector/node":      "node1",
 					},
 					Annotations: map[string]string{
-						"k8s-slurm-injector/status": "injected",
+						"k8s-slurm-injector/status":    "injected",
+						"k8s-slurm-injector/partition": "",
+						"k8s-slurm-injector/node":      "node1",
+						"k8s-slurm-injector/ntasks":    "",
+						"k8s-slurm-injector/ncpus":     "2",
+						"k8s-slurm-injector/gres":      "gpus:1",
+						"k8s-slurm-injector/time":      "",
+						"k8s-slurm-injector/name":      "",
 					},
 				},
 			},

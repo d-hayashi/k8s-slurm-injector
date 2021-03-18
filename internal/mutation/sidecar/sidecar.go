@@ -79,8 +79,43 @@ func (s sidecarinjector) getSlurmWebhookURL() string {
 	return slurmWebhookURL
 }
 
-func (s sidecarinjector) getJobInformation(obj metav1.Object) JobInformation {
-	var jobInfo JobInformation
+func (s sidecarinjector) getJobInformation(obj metav1.Object, jobInfo *JobInformation) error {
+	var podSpec corev1.PodSpec
+
+	switch v := obj.(type) {
+	case *corev1.Pod:
+		podSpec = v.Spec
+	case *batchv1.Job:
+		podSpec = v.Spec.Template.Spec
+	case *batchv1beta1.CronJob:
+		podSpec = v.Spec.JobTemplate.Spec.Template.Spec
+	}
+
+	// Get node name
+	if podSpec.NodeName != "" {
+		jobInfo.Node = podSpec.NodeName
+	}
+
+	// Get ncpus
+	ncpus := int64(0)
+	for _, container := range podSpec.Containers {
+		ncpus = ncpus + container.Resources.Requests.Cpu().Value()
+	}
+	if ncpus == 0 {
+		ncpus = 1
+	}
+	jobInfo.Ncpus = fmt.Sprintf("%d", ncpus)
+
+	// Get gresp
+	ngpus := int64(0)
+	for _, container := range podSpec.Containers {
+		if val, ok := container.Resources.Requests["nvidia.com/gpu"]; ok {
+			ngpus = ngpus + val.Value()
+		}
+	}
+	if ngpus > 0 {
+		jobInfo.Gres = fmt.Sprintf("gpus:%d", ngpus)
+	}
 
 	// Get labels
 	labels := obj.GetLabels()
@@ -98,7 +133,12 @@ func (s sidecarinjector) getJobInformation(obj metav1.Object) JobInformation {
 		}
 	}
 
-	return jobInfo
+	// Check
+	if jobInfo.Node == "" {
+		return fmt.Errorf("node must be specified with label 'k8s-slurm-injector/node'")
+	}
+
+	return nil
 }
 
 func (s sidecarinjector) constructSbatchURL(slurmWebhookURL string, jobInfo JobInformation) string {
@@ -116,9 +156,11 @@ func (s sidecarinjector) constructSbatchURL(slurmWebhookURL string, jobInfo JobI
 }
 
 func (s sidecarinjector) mutateObject(obj metav1.Object) error {
-	// Get pod-spec
 	var podSpec corev1.PodSpec
+	var jobInfo JobInformation
+	var err error
 
+	// Get pod-spec
 	switch v := obj.(type) {
 	case *corev1.Pod:
 		podSpec = v.Spec
@@ -132,7 +174,10 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 
 	// Construct sbatch URL
 	slurmWebhookURL := s.getSlurmWebhookURL()
-	jobInfo := s.getJobInformation(obj)
+	err = s.getJobInformation(obj, &jobInfo)
+	if err != nil {
+		return fmt.Errorf("failed to get job-information: %s", err.Error())
+	}
 	sbatchURL := s.constructSbatchURL(slurmWebhookURL, jobInfo)
 
 	// Enable shareProcessNamespace
@@ -261,6 +306,13 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 		annotations = map[string]string{}
 	}
 	annotations["k8s-slurm-injector/status"] = "injected"
+	annotations["k8s-slurm-injector/partition"] = jobInfo.Partition
+	annotations["k8s-slurm-injector/node"] = jobInfo.Node
+	annotations["k8s-slurm-injector/ntasks"] = jobInfo.Ntasks
+	annotations["k8s-slurm-injector/ncpus"] = jobInfo.Ncpus
+	annotations["k8s-slurm-injector/gres"] = jobInfo.Gres
+	annotations["k8s-slurm-injector/time"] = jobInfo.Time
+	annotations["k8s-slurm-injector/name"] = jobInfo.Name
 	obj.SetAnnotations(annotations)
 
 	return nil
