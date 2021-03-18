@@ -16,6 +16,7 @@ RUN ./scripts/build/build.sh
 # Final image.
 FROM alpine:latest
 RUN apk --no-cache add \
-    ca-certificates
+    ca-certificates \
+    openssh-client
 COPY --from=build-stage /src/bin/k8s-slurm-injector /usr/local/bin/k8s-slurm-injector
 ENTRYPOINT ["/usr/local/bin/k8s-slurm-injector"]

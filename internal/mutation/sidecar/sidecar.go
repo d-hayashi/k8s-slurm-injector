@@ -3,6 +3,7 @@ package sidecar
 import (
 	"context"
 	"fmt"
+	"os"
 
 	batchv1 "k8s.io/api/batch/v1"
 	batchv1beta1 "k8s.io/api/batch/v1beta1"
@@ -22,19 +23,30 @@ func NewSidecarInjector() SidecarInjector {
 
 type sidecarinjector struct{}
 
-func (s sidecarinjector) Inject(_ context.Context, obj metav1.Object) error {
-	// Filter object
-	switch obj.(type) {
-	case *corev1.Pod:
-		// pass
-	case *batchv1.Job:
-		// pass
-	case *batchv1beta1.CronJob:
-		// pass
-	default:
-		return nil
-	}
+type JobInformation struct {
+	Partition string
+	Node      string
+	Ntasks    string
+	Ncpus     string
+	Gres      string
+	Time      string
+	Name      string
+}
 
+func NewJobInformation() *JobInformation {
+	jobInfo := JobInformation{
+		Partition: "",
+		Node:      "",
+		Ntasks:    "1",
+		Ncpus:     "1",
+		Gres:      "",
+		Time:      "3600",
+		Name:      "",
+	}
+	return &jobInfo
+}
+
+func (s sidecarinjector) isInjectionEnabled(obj metav1.Object) bool {
 	// Get labels
 	labels := obj.GetLabels()
 	if labels == nil {
@@ -48,18 +60,84 @@ func (s sidecarinjector) Inject(_ context.Context, obj metav1.Object) error {
 			isInjection = true
 		}
 	}
-	if !isInjection {
-		return nil
+
+	return isInjection
+}
+
+func (s sidecarinjector) getSlurmWebhookURL() string {
+	// Get URL
+	slurmWebhookHost := os.Getenv("K8S_SLURM_INJECTOR_PORT_8082_TCP_ADDR")
+	slurmWebhookPort := os.Getenv("K8S_SLURM_INJECTOR_PORT_8082_TCP_PORT")
+	if slurmWebhookHost == "" {
+		slurmWebhookHost = "localhost"
 	}
+	if slurmWebhookPort == "" {
+		slurmWebhookPort = "8082"
+	}
+	slurmWebhookURL := "http://" + slurmWebhookHost + ":" + slurmWebhookPort
+
+	return slurmWebhookURL
+}
+
+func (s sidecarinjector) getJobInformation(obj metav1.Object) JobInformation {
+	var jobInfo JobInformation
+
+	// Get labels
+	labels := obj.GetLabels()
+	if labels == nil {
+		labels = map[string]string{}
+	}
+
+	// Get job-information
+	for key, value := range labels {
+		if key == "k8s-slurm-injector/partition" {
+			jobInfo.Partition = value
+		}
+		if key == "k8s-slurm-injector/node" {
+			jobInfo.Node = value
+		}
+	}
+
+	return jobInfo
+}
+
+func (s sidecarinjector) constructSbatchURL(slurmWebhookURL string, jobInfo JobInformation) string {
+	sbatchURL := slurmWebhookURL +
+		"/slurm/sbatch?" +
+		fmt.Sprintf("partition=%s&", jobInfo.Partition) +
+		fmt.Sprintf("node=%s&", jobInfo.Node) +
+		fmt.Sprintf("ntasks=%s&", jobInfo.Ntasks) +
+		fmt.Sprintf("ncpus=%s&", jobInfo.Ncpus) +
+		fmt.Sprintf("gres=%s&", jobInfo.Gres) +
+		fmt.Sprintf("time=%s&", jobInfo.Time) +
+		fmt.Sprintf("name=%s&", jobInfo.Name)
+
+	return sbatchURL
+}
+
+func (s sidecarinjector) mutateObject(obj metav1.Object) error {
+	// Construct sbatch URL
+	slurmWebhookURL := s.getSlurmWebhookURL()
+	jobInfo := s.getJobInformation(obj)
+	sbatchURL := s.constructSbatchURL(slurmWebhookURL, jobInfo)
 
 	// Add init-container
 	initContainer := corev1.Container{
-		Name:  "initial-container",
-		Image: "curlimages/curl:7.75.0",
-		Command: []string{
-			"curl",
+		Name:    "initial-container",
+		Image:   "curlimages/curl:7.75.0",
+		Command: []string{"/bin/sh", "-c"},
+		Args: []string{
+			fmt.Sprintf("slurmWebhookURL=%s && sbatchURL=%s &&", slurmWebhookURL, sbatchURL) +
+				"jobid=$(curl -s ${sbatchURL}) && " +
+				"while true; " +
+				"do " +
+				"sleep 1; " +
+				"state=$(curl -s ${slurmWebhookURL}/slurm/state?jobid=${jobid}); " +
+				"[[ \"$state\" = \"PENDING\" ]] && continue; " +
+				"[[ \"$state\" = \"RUNNING\" ]] && break; " +
+				"[[ \"$state\" = \"CANCELLED\" ]] && exit 1; " +
+				"done",
 		},
-		Args:            []string{},		// TODO: add webhook URL
 		ImagePullPolicy: "IfNotPresent",
 		VolumeMounts: []corev1.VolumeMount{
 			{
@@ -99,6 +177,33 @@ func (s sidecarinjector) Inject(_ context.Context, obj metav1.Object) error {
 	}
 	annotations["k8s-slurm-injector/status"] = "injected"
 	obj.SetAnnotations(annotations)
+
+	return nil
+}
+
+func (s sidecarinjector) Inject(_ context.Context, obj metav1.Object) error {
+	// Filter object
+	switch obj.(type) {
+	case *corev1.Pod:
+		// pass
+	case *batchv1.Job:
+		// pass
+	case *batchv1beta1.CronJob:
+		// pass
+	default:
+		return nil
+	}
+
+	// Check if injection is enabled
+	if !s.isInjectionEnabled(obj) {
+		return nil
+	}
+
+	// Mutate object
+	err := s.mutateObject(obj)
+	if err != nil {
+		return fmt.Errorf("failed to mutate object: %s", err.Error())
+	}
 
 	return nil
 }
