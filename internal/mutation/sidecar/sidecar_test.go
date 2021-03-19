@@ -2,7 +2,6 @@ package sidecar_test
 
 import (
 	"context"
-	"k8s.io/apimachinery/pkg/api/resource"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -10,6 +9,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	batchv1beta1 "k8s.io/api/batch/v1beta1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/d-hayashi/k8s-slurm-injector/internal/mutation/sidecar"
@@ -146,7 +146,7 @@ func TestSidecarinjector_Inject(t *testing.T) {
 							Image: "image",
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
-									"cpu": cpuResource,
+									"cpu":            cpuResource,
 									"nvidia.com/gpu": gpuResource,
 								},
 							},

@@ -246,7 +246,7 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 				"set -x; "+
 					"url=%s; "+
 					"jobid=$(cat /k8s-slurm-injector/jobid); "+
-					"[[ $jobid = \"\" ]] && echo 'Failed to get job-id' >&2 && exit 1; " +
+					"[[ $jobid = \"\" ]] && echo 'Failed to get job-id' >&2 && exit 1; "+
 					"getState() { curl -s \"${url}/slurm/state?jobid=${jobid}\"; }; "+
 					"scancel() { curl -s \"${url}/slurm/scancel?jobid=${jobid}\"; }; "+
 					"trap 'scancel' SIGHUP SIGINT SIGQUIT SIGTERM ; "+
@@ -259,10 +259,10 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 					"[[ $count -ge 10 ]] && exit 1; "+
 					"cid=$(cat /k8s-slurm-injector/container_id_0); "+
 					"[[ $cid = \"\" ]] && (echo 'Failed to get container_id' >&2; scancel) && exit 1; "+
-					"while true; " +
-					"do " +
-					"sleep 1; " +
-					"cat /proc/*/cgroup | grep ${cid} || break; " +
+					"while true; "+
+					"do "+
+					"sleep 1; "+
+					"cat /proc/*/cgroup | grep ${cid} || break; "+
 					"state=$(getState); "+
 					"[[ \"$state\" = \"COMPLETING\" ]] && break; "+
 					"[[ \"$state\" = \"CANCELLED\" ]] && break; "+
