@@ -22,7 +22,8 @@ spec:
           args:
             - --tls-cert-file-path=/etc/webhook/certs/cert.pem
             - --tls-key-file-path=/etc/webhook/certs/key.pem
-            - --webhook-ssh-destination=
+            - --webhook-ssh-destination=<SSH Destination>
+            - --webhook-ssh-port=<SSH Port>
           ports:
             - name: http
               containerPort: 8080

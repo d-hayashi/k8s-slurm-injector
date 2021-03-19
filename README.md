@@ -1,88 +1,103 @@
-# k8s-webhook-example
+# k8s-slurm-injector
 
-A production ready [Kubernetes admission webhook][k8s-admission-webhooks] example using [Kubewebhook].
+A [Kubernetes admission webhook][k8s-admission-webhooks] that injects a slurm job when a Pod is created.
 
-The example tries showing these:
+This is implemented based on [slok/k8s-webhook-example][k8s-webhook-example].
 
-- How to set up a production ready Kubernetes admission webhook.
-  - Clean and decouple structure.
-  - Metrics.
-  - Gracefull shutdown.
-  - Testing webhooks.
-- Serve multiple webhooks on the same application.
-- Mutating and validating webhooks with different use cases (check Webhooks section).
 
-## Structure
+## Deployment
 
-The application is mainly structured in 3 parts:
+### Prepare ssh-key
+You need to generate a new ssh-key as `k8s-slurm-injector` pod must be able to login to a node running slurmd via ssh.
 
-- `main`: This is where everything is created, wired, configured and set up, [cmd/k8s-webhook-example](cmd/k8s-slurm-injector/main.go).
-- `http`: This is the package that configures the HTTP server, wires the routes and the webhook handlers. [internal/http/webhook](internal/http/webhook).
-- Application services: These services have the domain logic of the validators and mutators:
-  - [`mutation/mark`](internal/mutation/mark): Logic for `all-mark-webhook.slok.dev` webhook.
-  - [`validation/ingress`](internal/validation/ingress): Logic for `ingress-validation-webhook.slok.dev` webhook.
-  - [`mutation/prometheus`](internal/mutation/prometheus): Logic for `service-monitor-safer.slok.dev` webhook.
+```bash
+$ ssh-keygen
+(follow the wizard and `id_rsa` and `id_rsa.pub` will be generated)
 
-Apart from the webhook refering stuff we have other parts like:
+```
 
-- [Decoupled metrics](internal/metrics)
-- [Decoupled logger](internal/log)
-- [Application command line flags](cmd/k8s-slurm-injector/config.go)
+Then, copy the content of `id_rsa.pub` into `${HOME}/.ssh/authorized_keys` on a node where slurmd is running.  
 
-And finally there is an example of how we could deploy our webhooks on a production server:
+After that, create a secret containing `id_rsa` as follows:
 
-- [Deploy](deploy)
+```bash
+$ kubectl create ns k8s-slurm-injector
+$ kubectl -n k8s-slurm-injector create secret generic k8s-slurm-injector-ssh-id-rsa --from-file=./
+
+```
+
+Make sure that `k8s-slurm-injector-ssh-id-rsa` exists in namespace `k8s-slurm-injector`.
+
+```bash
+$ kubectl -n k8s-slurm-injector get secrets
+...
+k8s-slurm-injector-ssh-id-rsa   Opaque                                2      1m
+...
+
+```
+
+
+### Deploy
+Clone this repository and generate certificates for deployment.
+
+```bash
+$ git clone https://github.com/d-hayashi/k8s-slurm-injector.git
+$ cd k8s-slurm-injector
+$ make gen-deploy-certs
+
+```
+
+Then, replace the following parts in `deploy/app.yaml`
+- `<SSH Destination>`: Username and IP-address of the node running slurm with format `username@ip-address`
+- `<SSH Port>`: Port number of the SSH-server
+
+After that, deploy `app-certs` and `app` and make sure deployment `k8s-slurm-injector` becomes ready.
+
+```bash
+$ cd deploy
+$ kubectl apply -f app-certs.yaml
+$ kubectl apply -f app.yaml
+$ kubectl -n k8s-slurm-injector get deployment --watch
+NAME                 READY   UP-TO-DATE   AVAILABLE   AGE
+k8s-slurm-injector   0/1     1            0           1s
+k8s-slurm-injector   1/1     1            1           10s
+
+```
+
+When it is confirmed, deploy `webhooks`.
+```bash
+$ kubectl apply -f webhooks.yaml
+
+```
+
+If deployment `k8s-slurm-injector` does not become ready, you should check logs.
+```bash
+$ kubectl -n k8s-slurm-injector logs deployment/k8s-slurm-injector
+
+```
+
+
+### Test
+
+To check the behavior of k8s-slurm-injector, you can deploy `sample-pod`.
+```bash
+$ kubectl apply -f sample-pod.yaml
+
+```
+
+Note that pod is labeled with `k8s-slurm-injector/injection: enabled`.  
+Slurm jobs are injected only if resources have this label.
+
 
 ## Webhooks
 
-### `all-mark-webhook.slok.dev`
+### `inject-slurm-job.d-hayashi.dev`
 
 - Webhook type: Mutating.
-- Resources affected: `deployments`, `daemonsets`, `cronjobs`, `jobs`, `statefulsets`, `pods`
+- Resources affected: `cronjobs`, `jobs`, `pods`
 
-This webhooks shows how to add a label to all the specified types in a generic way.
+This webhook injects a slurm-job at the time containers start in the pod.
 
-We use dynamic webhooks without the requirement to know what type of objects we are dealing with. This is becase all the types implement `metav1.Object` interface that accesses to the metadata of the object. In this case our domain logic doesn't need to know what type is.
-
-### `ingress-validation-webhook.slok.dev`
-
-- Webhook type: Validating.
-- Resources affected: Ingresses.
-
-This webhook has a chain of validation on ingress objects, it is composed of 2 validations:
-
-- Check an ingress has a single host/rule.
-- Check an ingress host matches specific regexes.
-
-This webhook shows two things:
-
-First, shows how to create a chain of validations for a single webhook handler.
-
-Second, it shows how to deal with specific types of resources in different group/versions, for this it uses a dynamic webhook (like `all-mark-webhook.slok.dev`) but this instead, typecasts to the specific types, in this case, the webhook validates all available ingresses, specifically `extensions/v1beta1` and `networking.k8s.io/v1beta1`.
-
-### `service-monitor-safer.slok.dev`
-
-- Webhook type: Mutating.
-- Resources affected: [ServiceMonitors] (`monitoring.coreos.com/v1`) CRD.
-
-This webhook show two things.
-
-- Working with CRDs, in this case mutating them.
-- Working with Static webhooks (specific type).
-
-This webhook takes Prometheus `monitoring.coreos.com/v1/servicemonitors` CRs and sets safe scraping intervals, it checks the interval and in case is missing or is less that the minimum configured it will mutate the CR to set the minimum scrape interval.
-
-This will show us how to deal with CRDs in webhooks, and also how we can make static webhooks to only work safely in a specific resource type.
-
-The static webhooks are specially important on resources that are not known, these are:
-
-- CRDs.
-- Core resources that are on the cluster but not on the webhook libraries, because of Kubernetes different versions (new types and deprecations from version to version).
-
-If we use dynamic webhook on unknown types by our webhook app, we will deal with `runtime.Unstructured`, this is not bad and is safe, it would add complexity to mutate/validate these objects, although for mutating/validating metadata fields (e.g `labels`), is easy and simple.
-
-That said, most webhooks can/should use dynamic type webhooks because are common resources, like `ingress-validation-webhook.slok.dev`, `all-mark-webhook.slok.dev`, that use dynamic webhooks correctly.
 
 [k8s-admission-webhooks]: https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/
-[kubewebhook]: https://github.com/slok/kubewebhook
-[servicemonitors]: https://github.com/coreos/prometheus-operator/blob/master/Documentation/api.md#servicemonitor
+[k8s-webhook-example]: https://github.com/slok/k8s-webhook-example

@@ -6,7 +6,7 @@ metadata:
     app: k8s-slurm-injector-webhook
     kind: mutator
 webhooks:
-  - name: inject-sidecar-webhook.d-hayashi.dev
+  - name: inject-slurm-job.d-hayashi.dev
     admissionReviewVersions: ["v1"]
     sideEffects: None
     clientConfig:
