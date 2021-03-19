@@ -21,3 +21,6 @@ vendor/
 
 # Test coverage.
 .test_coverage.txt
+
+# idea
+.idea/
