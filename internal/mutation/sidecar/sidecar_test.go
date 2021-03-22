@@ -194,7 +194,7 @@ func TestSidecarinjector_Inject(t *testing.T) {
 			assert := assert.New(t)
 			require := require.New(t)
 
-			injector := sidecar.NewSidecarInjector()
+			injector, _ := sidecar.NewSidecarInjector("", "")
 
 			err := injector.Inject(context.TODO(), test.obj)
 			require.NoError(err)

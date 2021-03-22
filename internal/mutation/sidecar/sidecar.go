@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
+	"strings"
 
 	batchv1 "k8s.io/api/batch/v1"
 	batchv1beta1 "k8s.io/api/batch/v1beta1"
@@ -17,11 +19,23 @@ type SidecarInjector interface {
 }
 
 // NewSidecarInjector returns a new sidecar-injector that will inject sidecars.
-func NewSidecarInjector() SidecarInjector {
-	return sidecarinjector{}
+func NewSidecarInjector(SSHDestination string, SSHPort string) (SidecarInjector, error) {
+	var err error
+	injector := sidecarinjector{SSHDestination: SSHDestination, SSHPort: SSHPort}
+	injector.Nodes, err = injector.fetchSlurmNodes()
+	if err == nil {
+		injector.Partitions, err = injector.fetchSlurmPartitions()
+	}
+
+	return injector, err
 }
 
-type sidecarinjector struct{}
+type sidecarinjector struct {
+	SSHDestination string
+	SSHPort        string
+	Nodes          []string
+	Partitions     []string
+}
 
 type JobInformation struct {
 	Partition string
@@ -62,6 +76,38 @@ func (s sidecarinjector) isInjectionEnabled(obj metav1.Object) bool {
 	}
 
 	return isInjection
+}
+
+func (s sidecarinjector) validate(obj metav1.Object) error {
+	var err error
+	var jobInfo JobInformation
+	err = s.getJobInformation(obj, &jobInfo)
+
+	if err != nil {
+		return err
+	}
+
+	isNodeExists := false
+	for _, node := range s.Nodes {
+		if node == jobInfo.Node {
+			isNodeExists = true
+		}
+	}
+	if !isNodeExists {
+		return fmt.Errorf("unrecognized node: %s", jobInfo.Node)
+	}
+
+	isPartitionExists := false
+	for _, partition := range s.Partitions {
+		if partition == jobInfo.Partition {
+			isPartitionExists = true
+		}
+	}
+	if !isPartitionExists {
+		return fmt.Errorf("unrecognized partition: %s", jobInfo.Partition)
+	}
+
+	return nil
 }
 
 func (s sidecarinjector) getSlurmWebhookURL() string {
@@ -191,11 +237,12 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 		Command: []string{"/bin/sh", "-c"},
 		Args: []string{
 			fmt.Sprintf("set -x ; slurmWebhookURL=\"%s\" && sbatchURL=\"%s\" && ", slurmWebhookURL, sbatchURL) +
-				"jobid=$(curl -s ${sbatchURL}) && " +
+				"jobid=$(curl -s ${sbatchURL} || echo \"error\") && " +
 				"echo ${jobid} > /k8s-slurm-injector/jobid && " +
 				"while true; " +
 				"do " +
 				"sleep 1; " +
+				"[[ \"$jobid\" = \"error\" ]] && exit 1; " +
 				"state=$(curl -s ${slurmWebhookURL}/slurm/state?jobid=${jobid}); " +
 				"[[ \"$state\" = \"PENDING\" ]] && continue; " +
 				"[[ \"$state\" = \"RUNNING\" ]] && break; " +
@@ -243,10 +290,10 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 		Command: []string{"/bin/sh", "-c"},
 		Args: []string{
 			fmt.Sprintf(
-				"set -x; "+
-					"url=%s; "+
+				"url=%s; "+
 					"jobid=$(cat /k8s-slurm-injector/jobid); "+
 					"[[ $jobid = \"\" ]] && echo 'Failed to get job-id' >&2 && exit 1; "+
+					"[[ $jobid = \"error\" ]] && echo 'Failed to get job-id' >&2 && exit 1; "+
 					"getState() { curl -s \"${url}/slurm/state?jobid=${jobid}\"; }; "+
 					"scancel() { curl -s \"${url}/slurm/scancel?jobid=${jobid}\"; }; "+
 					"trap 'scancel' SIGHUP SIGINT SIGQUIT SIGTERM ; "+
@@ -318,7 +365,55 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 	return nil
 }
 
+func (s sidecarinjector) fetchSlurmNodes() ([]string, error) {
+	sshOptions := []string{
+		"-o",
+		"StrictHostKeyChecking=no",
+		"-p",
+		s.SSHPort,
+		s.SSHDestination,
+		"sinfo --Node | tail -n +2 | awk '{print $1}' | sort | uniq",
+	}
+
+	var nodes []string
+	out, err := exec.Command("ssh", sshOptions...).Output()
+	candidates := strings.Split(string(out), "\n")
+	for _, candidate := range candidates {
+		if candidate != "" {
+			nodes = append(nodes, candidate)
+		}
+	}
+
+	return nodes, err
+}
+
+func (s sidecarinjector) fetchSlurmPartitions() ([]string, error) {
+	sshOptions := []string{
+		"-o",
+		"StrictHostKeyChecking=no",
+		"-p",
+		s.SSHPort,
+		s.SSHDestination,
+		"sinfo | tail -n +2 | awk '{print $1}' | sort | uniq",
+	}
+
+	var partitions []string
+	out, err := exec.Command("ssh", sshOptions...).Output()
+	candidates := strings.Split(string(out), "\n")
+	for _, candidate := range candidates {
+		candidate = strings.TrimSuffix(candidate, "*")
+		if candidate != "" {
+			partitions = append(partitions, candidate)
+		}
+	}
+	partitions = append(partitions, "")
+
+	return partitions, err
+}
+
 func (s sidecarinjector) Inject(_ context.Context, obj metav1.Object) error {
+	var err error
+
 	// Filter object
 	switch obj.(type) {
 	case *corev1.Pod:
@@ -336,8 +431,14 @@ func (s sidecarinjector) Inject(_ context.Context, obj metav1.Object) error {
 		return nil
 	}
 
+	// Validate object
+	err = s.validate(obj)
+	if err != nil {
+		return fmt.Errorf("failed to mutate object: %s", err.Error())
+	}
+
 	// Mutate object
-	err := s.mutateObject(obj)
+	err = s.mutateObject(obj)
 	if err != nil {
 		return fmt.Errorf("failed to mutate object: %s", err.Error())
 	}

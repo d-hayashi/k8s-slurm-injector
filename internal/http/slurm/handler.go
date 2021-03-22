@@ -27,8 +27,6 @@ func constructSSHCommand(sshPort string, sshDestination string, commands []strin
 	sshOptions := []string{
 		"-o",
 		"StrictHostKeyChecking=no",
-		//"-i",
-		//"/root/.ssh/id_rsa",
 		"-p",
 		sshPort,
 		sshDestination,
@@ -117,11 +115,9 @@ func (s SbatchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Write to respond
 	if err == nil {
-		_, err = fmt.Fprint(w, string(out))
-	}
-
-	// Handle error
-	if err != nil {
+		_, _ = fmt.Fprint(w, string(out))
+	} else {
+		w.WriteHeader(http.StatusInternalServerError)
 		s.handler.logger.Errorf("failed to sbatch: %s", err.Error())
 	}
 }
@@ -166,11 +162,9 @@ func (s JobStateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Write to respond
 	if err == nil {
-		_, err = fmt.Fprint(w, state)
-	}
-
-	// Handle error
-	if err != nil {
+		_, _ = fmt.Fprint(w, state)
+	} else {
+		w.WriteHeader(http.StatusInternalServerError)
 		s.handler.logger.Errorf("failed to get job information: %s", err.Error())
 	}
 }
@@ -201,11 +195,9 @@ func (s ScancelHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Write to respond
 	if err == nil {
-		_, err = fmt.Fprint(w, string(out))
-	}
-
-	// Handle error
-	if err != nil {
+		_, _ = fmt.Fprint(w, string(out))
+	} else {
+		w.WriteHeader(http.StatusInternalServerError)
 		s.handler.logger.Errorf("failed to scancel: %s", err.Error())
 	}
 }

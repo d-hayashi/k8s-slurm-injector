@@ -52,7 +52,10 @@ func runApp() error {
 
 	var sidecarInjector sidecar.SidecarInjector
 	if cfg.SSHDestination != "" {
-		sidecarInjector = sidecar.NewSidecarInjector()
+		sidecarInjector, err = sidecar.NewSidecarInjector(cfg.SSHDestination, cfg.SSHPort)
+		if err != nil {
+			return fmt.Errorf("failed to initialize sidecar injector: %w", err)
+		}
 		logger.Infof("sidecar injector webhook enabled")
 	} else {
 		sidecarInjector = sidecar.DummySidecarInjector
