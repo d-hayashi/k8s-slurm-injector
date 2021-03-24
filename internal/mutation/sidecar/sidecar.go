@@ -308,9 +308,10 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 					"scancel() { curl -s \"${url}/slurm/scancel?jobid=${jobid}\"; }; "+
 					"trap 'scancel' SIGHUP SIGINT SIGQUIT SIGTERM ; "+
 					"count=0; "+
-					"while $count<10; "+
+					"while [[ $count -lt 10 ]]; "+
 					"do "+
 					"[[ -f /k8s-slurm-injector/container_id_0 ]] && break; "+
+					"sleep 1; "+
 					"count=$((count+1)); "+
 					"done; "+
 					"[[ $count -ge 10 ]] && exit 1; "+
@@ -319,10 +320,14 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 					"while true; "+
 					"do "+
 					"sleep 1; "+
-					"cat /proc/*/cgroup | grep ${cid} || break; "+
+					"cat /proc/*/cgroup | grep ${cid} > /dev/null || break; "+
 					"state=$(getState); "+
 					"[[ \"$state\" = \"COMPLETING\" ]] && break; "+
 					"[[ \"$state\" = \"CANCELLED\" ]] && break; "+
+					"done; "+
+					"for pid in $(cd /proc && echo [0-9]* | tr \" \" \"\\n\" | sort -n); "+
+					"do "+
+					"cat /proc/${pid}/cgroup | grep ${cid} >/dev/null && kill -9 ${pid}; "+
 					"done; "+
 					"scancel",
 				slurmWebhookURL),
