@@ -1,5 +1,7 @@
 # k8s-slurm-injector
 
+![screencast](https://raw.github.com/wiki/d-hayashi/k8s-slurm-injector/screencast.gif)
+
 A [Kubernetes admission webhook][k8s-admission-webhooks] that injects a slurm job when a Pod is created.
 
 This is implemented based on [slok/k8s-webhook-example][k8s-webhook-example].
