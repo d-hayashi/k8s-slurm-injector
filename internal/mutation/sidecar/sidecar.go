@@ -327,7 +327,8 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 					"done; "+
 					"for pid in $(cd /proc && echo [0-9]* | tr \" \" \"\\n\" | sort -n); "+
 					"do "+
-					"cat /proc/${pid}/cgroup | grep ${cid} >/dev/null && kill -9 ${pid}; "+
+					"cat /proc/${pid}/cgroup | grep ${cid} >/dev/null && kill -9 ${pid} " +
+					"&& echo \"Process ${pid} has been killed by slurm.\"; "+
 					"done; "+
 					"scancel",
 				slurmWebhookURL),
