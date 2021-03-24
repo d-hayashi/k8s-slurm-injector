@@ -252,7 +252,7 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 				"while true; " +
 				"do " +
 				"sleep 1; " +
-				"[[ \"$jobid\" =~ ^[0-9]+$ ]] || exit 1; " +
+				"echo \"$jobid\" | egrep -q '^[0-9]+$' || exit 1; " +
 				"state=$(curl -s ${slurmWebhookURL}/slurm/state?jobid=${jobid}); " +
 				"[[ \"$state\" = \"PENDING\" ]] && continue; " +
 				"[[ \"$state\" = \"RUNNING\" ]] && break; " +
