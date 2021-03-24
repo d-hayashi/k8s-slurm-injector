@@ -94,15 +94,15 @@ func (s SbatchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				"\n echo \"Sleeping.  Pid=$$\" " +
 				"\n while true; do sleep 10 & wait $!; done",
 		}
-		out, err = s.handler.ssh.RunCommand(command)
+		out, err = s.handler.ssh.RunCommandCombined(command)
 	}
 
 	// Write to respond
-	if err == nil {
-		_, _ = fmt.Fprint(w, string(out))
-	} else {
+	_, _ = fmt.Fprint(w, string(out))
+
+	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		s.handler.logger.Errorf("failed to sbatch: %s", err.Error())
+		s.handler.logger.Errorf("failed to sbatch: %s (%s)", err.Error(), out)
 	}
 }
 

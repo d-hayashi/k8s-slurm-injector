@@ -7,13 +7,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
-	expect "github.com/google/goexpect"
 	"golang.org/x/crypto/ssh"
 )
 
 type SSHHandler interface {
+	RunCommandCombined(command SSHCommand) ([]byte, error)
 	RunCommand(command SSHCommand) ([]byte, error)
 	Destruct() error
 }
@@ -27,7 +26,6 @@ type SSH struct {
 	destination string
 	port        string
 	conn        *ssh.Client
-	exp         *expect.GExpect
 }
 
 type DummySSH struct{}
@@ -83,15 +81,32 @@ func New(dest string, port string) (SSHHandler, error) {
 	}
 	sshInfo.conn = conn
 
-	// Spawn
-	timeout := 10 * time.Second
-	exp, _, err := expect.SpawnSSH(conn, timeout)
-	if err != nil {
+	return &sshInfo, err
+}
+
+func (s SSH) RunCommandCombined(command SSHCommand) ([]byte, error) {
+	var (
+		session *ssh.Session
+		err     error
+		res     []byte
+	)
+
+	if session, err = s.conn.NewSession(); err != nil {
 		return nil, err
 	}
-	sshInfo.exp = exp
+	defer session.Close()
 
-	return &sshInfo, err
+	if command.StdinPipe != "" {
+		go func() {
+			stdin, _ := session.StdinPipe()
+			defer stdin.Close()
+
+			_, err = io.WriteString(stdin, command.StdinPipe)
+		}()
+	}
+
+	res, err = session.CombinedOutput(command.Command)
+	return res, err
 }
 
 func (s SSH) RunCommand(command SSHCommand) ([]byte, error) {
@@ -121,6 +136,10 @@ func (s SSH) RunCommand(command SSHCommand) ([]byte, error) {
 
 func (s SSH) Destruct() error {
 	return s.conn.Close()
+}
+
+func (s DummySSH) RunCommandCombined(command SSHCommand) ([]byte, error) {
+	return nil, nil
 }
 
 func (s DummySSH) RunCommand(command SSHCommand) ([]byte, error) {

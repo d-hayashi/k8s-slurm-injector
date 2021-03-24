@@ -246,12 +246,13 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 		Command: []string{"/bin/sh", "-c"},
 		Args: []string{
 			fmt.Sprintf("set -x ; slurmWebhookURL=\"%s\" && sbatchURL=\"%s\" && ", slurmWebhookURL, sbatchURL) +
-				"jobid=$(curl -s ${sbatchURL} || echo \"error\") && " +
+				"jobid=$(curl -s ${sbatchURL}) && " +
+				"echo \"Job ID: ${jobid}\" && " +
 				"echo ${jobid} > /k8s-slurm-injector/jobid && " +
 				"while true; " +
 				"do " +
 				"sleep 1; " +
-				"[[ \"$jobid\" = \"error\" ]] && exit 1; " +
+				"[[ \"$jobid\" =~ ^[0-9]+$ ]] || exit 1; " +
 				"state=$(curl -s ${slurmWebhookURL}/slurm/state?jobid=${jobid}); " +
 				"[[ \"$state\" = \"PENDING\" ]] && continue; " +
 				"[[ \"$state\" = \"RUNNING\" ]] && break; " +
