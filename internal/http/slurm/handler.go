@@ -2,13 +2,12 @@ package slurm
 
 import (
 	"fmt"
-	"io"
 	"net/http"
-	"os/exec"
 	"regexp"
 	"strings"
 
 	"github.com/d-hayashi/k8s-slurm-injector/internal/mutation/sidecar"
+	"github.com/d-hayashi/k8s-slurm-injector/internal/ssh_handler"
 )
 
 type SbatchHandler struct {
@@ -21,18 +20,6 @@ type JobStateHandler struct {
 
 type ScancelHandler struct {
 	handler handler
-}
-
-func constructSSHCommand(sshPort string, sshDestination string, commands []string) *exec.Cmd {
-	sshOptions := []string{
-		"-o",
-		"StrictHostKeyChecking=no",
-		"-p",
-		sshPort,
-		sshDestination,
-	}
-
-	return exec.Command("ssh", append(sshOptions, commands...)...)
 }
 
 func (s SbatchHandler) parseQueryParams(r *http.Request, jobInfo *sidecar.JobInformation) error {
@@ -99,18 +86,15 @@ func (s SbatchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Execute ssh commands
-	sshCommand := constructSSHCommand(s.handler.sshPort, s.handler.sshDestination, commands)
-	stdin, _ := sshCommand.StdinPipe()
-	_, _ = io.WriteString(
-		stdin,
-		"#!/bin/sh "+
-			"\n trap 'echo \"Killing...\"' SIGHUP SIGINT SIGQUIT SIGTERM "+
-			"\n echo \"Sleeping.  Pid=$$\" "+
-			"\n while true; do sleep 10 & wait $!; done",
-	)
-	_ = stdin.Close()
 	if err == nil {
-		out, err = sshCommand.Output()
+		command := ssh_handler.SSHCommand{
+			Command: strings.Join(commands, " "),
+			StdinPipe: "#!/bin/sh " +
+				"\n trap 'echo \"Killing...\"' SIGHUP SIGINT SIGQUIT SIGTERM " +
+				"\n echo \"Sleeping.  Pid=$$\" " +
+				"\n while true; do sleep 10 & wait $!; done",
+		}
+		out, err = s.handler.ssh.RunCommand(command)
 	}
 
 	// Write to respond
@@ -123,10 +107,6 @@ func (s SbatchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h handler) sbatch() (http.Handler, error) {
-	if h.sshDestination == "" {
-		return nil, fmt.Errorf("ssh destination must be set")
-	}
-
 	return SbatchHandler{h}, nil
 }
 
@@ -139,19 +119,12 @@ func (s JobStateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var out []byte
 	var state string
-	var err error = nil
 
-	// Execute `scontrol show jobid ???`
-	commands := []string{
-		"scontrol",
-		"show",
-		"jobid",
-		jobid,
+	command := ssh_handler.SSHCommand{
+		Command: fmt.Sprintf("scontrol show jobid %s", jobid),
 	}
-	sshCommand := constructSSHCommand(s.handler.sshPort, s.handler.sshDestination, commands)
-	out, err = sshCommand.Output()
+	out, err := s.handler.ssh.RunCommand(command)
 
 	// Extract JobState
 	reg := regexp.MustCompile(`(?i)JobState=[A-Z]+`)
@@ -170,10 +143,6 @@ func (s JobStateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h handler) jobState() (http.Handler, error) {
-	if h.sshDestination == "" {
-		return nil, fmt.Errorf("ssh destination must be set")
-	}
-
 	return JobStateHandler{h}, nil
 }
 
@@ -190,8 +159,10 @@ func (s ScancelHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var err error = nil
 
 	// Execute `scancel {jobid}`
-	sshCommand := constructSSHCommand(s.handler.sshPort, s.handler.sshDestination, []string{"scancel", jobid})
-	out, err = sshCommand.Output()
+	command := ssh_handler.SSHCommand{
+		Command: fmt.Sprintf("scancel %s", jobid),
+	}
+	out, err = s.handler.ssh.RunCommand(command)
 
 	// Write to respond
 	if err == nil {
@@ -203,9 +174,5 @@ func (s ScancelHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h handler) scancel() (http.Handler, error) {
-	if h.sshDestination == "" {
-		return nil, fmt.Errorf("ssh destination must be set")
-	}
-
 	return ScancelHandler{h}, nil
 }

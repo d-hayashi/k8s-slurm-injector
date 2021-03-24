@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 
+	"github.com/d-hayashi/k8s-slurm-injector/internal/ssh_handler"
 	batchv1 "k8s.io/api/batch/v1"
 	batchv1beta1 "k8s.io/api/batch/v1beta1"
 	corev1 "k8s.io/api/core/v1"
@@ -16,25 +16,26 @@ import (
 // SidecarInjector knows how to mark Kubernetes resources.
 type SidecarInjector interface {
 	Inject(ctx context.Context, obj metav1.Object) error
+	SetNodes(nodes []string)
+	SetPartitions(partitions []string)
 }
 
 // NewSidecarInjector returns a new sidecar-injector that will inject sidecars.
-func NewSidecarInjector(SSHDestination string, SSHPort string) (SidecarInjector, error) {
+func NewSidecarInjector(sshHandler ssh_handler.SSHHandler) (SidecarInjector, error) {
 	var err error
-	injector := sidecarinjector{SSHDestination: SSHDestination, SSHPort: SSHPort}
+	injector := sidecarinjector{ssh: sshHandler}
 	injector.Nodes, err = injector.fetchSlurmNodes()
 	if err == nil {
 		injector.Partitions, err = injector.fetchSlurmPartitions()
 	}
 
-	return injector, err
+	return &injector, err
 }
 
 type sidecarinjector struct {
-	SSHDestination string
-	SSHPort        string
-	Nodes          []string
-	Partitions     []string
+	ssh        ssh_handler.SSHHandler
+	Nodes      []string
+	Partitions []string
 }
 
 type JobInformation struct {
@@ -58,6 +59,14 @@ func NewJobInformation() *JobInformation {
 		Name:      "",
 	}
 	return &jobInfo
+}
+
+func (s *sidecarinjector) SetNodes(nodes []string) {
+	s.Nodes = nodes
+}
+
+func (s *sidecarinjector) SetPartitions(partitions []string) {
+	s.Partitions = partitions
 }
 
 func (s sidecarinjector) isInjectionEnabled(obj metav1.Object) bool {
@@ -366,17 +375,12 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 }
 
 func (s sidecarinjector) fetchSlurmNodes() ([]string, error) {
-	sshOptions := []string{
-		"-o",
-		"StrictHostKeyChecking=no",
-		"-p",
-		s.SSHPort,
-		s.SSHDestination,
-		"sinfo --Node | tail -n +2 | awk '{print $1}' | sort | uniq",
+	command := ssh_handler.SSHCommand{
+		Command: "sinfo --Node | tail -n +2 | awk '{print $1}' | sort | uniq",
 	}
 
 	var nodes []string
-	out, err := exec.Command("ssh", sshOptions...).Output()
+	out, err := s.ssh.RunCommand(command)
 	candidates := strings.Split(string(out), "\n")
 	for _, candidate := range candidates {
 		if candidate != "" {
@@ -388,17 +392,12 @@ func (s sidecarinjector) fetchSlurmNodes() ([]string, error) {
 }
 
 func (s sidecarinjector) fetchSlurmPartitions() ([]string, error) {
-	sshOptions := []string{
-		"-o",
-		"StrictHostKeyChecking=no",
-		"-p",
-		s.SSHPort,
-		s.SSHDestination,
-		"sinfo | tail -n +2 | awk '{print $1}' | sort | uniq",
+	command := ssh_handler.SSHCommand{
+		Command: "sinfo | tail -n +2 | awk '{print $1}' | sort | uniq",
 	}
 
 	var partitions []string
-	out, err := exec.Command("ssh", sshOptions...).Output()
+	out, err := s.ssh.RunCommand(command)
 	candidates := strings.Split(string(out), "\n")
 	for _, candidate := range candidates {
 		candidate = strings.TrimSuffix(candidate, "*")
@@ -452,3 +451,5 @@ var DummySidecarInjector SidecarInjector = dummySidecarInjector(0)
 type dummySidecarInjector int
 
 func (dummySidecarInjector) Inject(_ context.Context, _ metav1.Object) error { return nil }
+func (dummySidecarInjector) SetNodes(nodes []string)                         {}
+func (dummySidecarInjector) SetPartitions(partitions []string)               {}

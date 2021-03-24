@@ -22,6 +22,7 @@ import (
 	"github.com/d-hayashi/k8s-slurm-injector/internal/mutation/mark"
 	internalmutationprometheus "github.com/d-hayashi/k8s-slurm-injector/internal/mutation/prometheus"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/mutation/sidecar"
+	"github.com/d-hayashi/k8s-slurm-injector/internal/ssh_handler"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/validation/ingress"
 )
 
@@ -50,16 +51,15 @@ func runApp() error {
 	// Dependencies.
 	metricsRec := internalmetricsprometheus.NewRecorder(prometheus.DefaultRegisterer)
 
-	var sidecarInjector sidecar.SidecarInjector
-	if cfg.SSHDestination != "" {
-		sidecarInjector, err = sidecar.NewSidecarInjector(cfg.SSHDestination, cfg.SSHPort)
-		if err != nil {
-			return fmt.Errorf("failed to initialize sidecar injector: %w", err)
-		}
-		logger.Infof("sidecar injector webhook enabled")
-	} else {
-		sidecarInjector = sidecar.DummySidecarInjector
-		logger.Warningf("sidecar injector webhook disabled")
+	// Establish SSH connection
+	sshHandler, err := ssh_handler.New(cfg.SSHDestination, cfg.SSHPort)
+	if err != nil {
+		return fmt.Errorf("failed to esablish SSH connection: %s", err)
+	}
+
+	sidecarInjector, err := sidecar.NewSidecarInjector(sshHandler)
+	if err != nil {
+		return fmt.Errorf("failed to initialize sidecar injector: %w", err)
 	}
 
 	var marker mark.Marker
@@ -220,10 +220,8 @@ func runApp() error {
 
 		// Slurm handler
 		wh, err := slurm.New(slurm.Config{
-			SSHDestination: cfg.SSHDestination,
-			SSHPort:        cfg.SSHPort,
-			Logger:         logger,
-		})
+			Logger: logger,
+		}, sshHandler)
 		if err != nil {
 			return fmt.Errorf("could not create webhooks handler: %w", err)
 		}
@@ -247,6 +245,11 @@ func runApp() error {
 					logger.Errorf("error while shutting down the server: %s", err)
 				} else {
 					logger.Infof("server stopped")
+				}
+
+				err = sshHandler.Destruct()
+				if err != nil {
+					logger.Errorf("error while closing SSH connections: %s", err)
 				}
 			},
 		)

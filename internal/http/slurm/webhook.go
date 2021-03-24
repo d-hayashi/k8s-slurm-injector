@@ -5,13 +5,12 @@ import (
 	"net/http"
 
 	"github.com/d-hayashi/k8s-slurm-injector/internal/log"
+	"github.com/d-hayashi/k8s-slurm-injector/internal/ssh_handler"
 )
 
 // Config is the handler configuration.
 type Config struct {
-	SSHDestination string
-	SSHPort        string
-	Logger         log.Logger
+	Logger log.Logger
 }
 
 func (c *Config) defaults() error {
@@ -23,14 +22,13 @@ func (c *Config) defaults() error {
 }
 
 type handler struct {
-	handler        http.Handler
-	sshDestination string
-	sshPort        string
-	logger         log.Logger
+	handler http.Handler
+	ssh     ssh_handler.SSHHandler
+	logger  log.Logger
 }
 
 // New returns a new webhook handler.
-func New(config Config) (http.Handler, error) {
+func New(config Config, sshHandler ssh_handler.SSHHandler) (http.Handler, error) {
 	err := config.defaults()
 	if err != nil {
 		return nil, fmt.Errorf("handler configuration is not valid: %w", err)
@@ -39,10 +37,9 @@ func New(config Config) (http.Handler, error) {
 	mux := http.NewServeMux()
 
 	h := handler{
-		handler:        mux,
-		sshDestination: config.SSHDestination,
-		sshPort:        config.SSHPort,
-		logger:         config.Logger.WithKV(log.KV{"service": "slurm-handler"}),
+		handler: mux,
+		ssh:     sshHandler,
+		logger:  config.Logger.WithKV(log.KV{"service": "slurm-handler"}),
 	}
 
 	// Register all the routes with our router.
