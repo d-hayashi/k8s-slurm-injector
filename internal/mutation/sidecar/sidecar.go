@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/d-hayashi/k8s-slurm-injector/internal/ssh_handler"
@@ -43,6 +44,7 @@ type JobInformation struct {
 	Node      string
 	Ntasks    string
 	Ncpus     string
+	GpuLimit  bool
 	Gres      string
 	Time      string
 	Name      string
@@ -54,6 +56,7 @@ func NewJobInformation() *JobInformation {
 		Node:      "",
 		Ntasks:    "1",
 		Ncpus:     "1",
+		GpuLimit:  false,
 		Gres:      "",
 		Time:      "1440",
 		Name:      "",
@@ -146,6 +149,27 @@ func (s sidecarinjector) getJobInformation(obj metav1.Object, jobInfo *JobInform
 		podSpec = v.Spec.JobTemplate.Spec.Template.Spec
 	}
 
+	// Get labels
+	labels := obj.GetLabels()
+	if labels == nil {
+		labels = map[string]string{}
+	}
+
+	// Get job-information
+	for key, value := range labels {
+		if key == "k8s-slurm-injector/partition" {
+			jobInfo.Partition = value
+		}
+		if key == "k8s-slurm-injector/node" {
+			jobInfo.Node = value
+		}
+		if key == "k8s-slurm-injector/ngpus" {
+			if value != "" && value != "0" {
+				jobInfo.Gres = fmt.Sprintf("gpu:%s", value)
+			}
+		}
+	}
+
 	// Get node name
 	if podSpec.NodeName != "" {
 		jobInfo.Node = podSpec.NodeName
@@ -164,28 +188,13 @@ func (s sidecarinjector) getJobInformation(obj metav1.Object, jobInfo *JobInform
 	// Get gresp
 	ngpus := int64(0)
 	for _, container := range podSpec.Containers {
-		if val, ok := container.Resources.Requests["nvidia.com/gpu"]; ok {
+		if val, ok := container.Resources.Limits["nvidia.com/gpu"]; ok {
 			ngpus = ngpus + val.Value()
+			jobInfo.GpuLimit = true
 		}
 	}
 	if ngpus > 0 {
-		jobInfo.Gres = fmt.Sprintf("gpus:%d", ngpus)
-	}
-
-	// Get labels
-	labels := obj.GetLabels()
-	if labels == nil {
-		labels = map[string]string{}
-	}
-
-	// Get job-information
-	for key, value := range labels {
-		if key == "k8s-slurm-injector/partition" {
-			jobInfo.Partition = value
-		}
-		if key == "k8s-slurm-injector/node" {
-			jobInfo.Node = value
-		}
+		jobInfo.Gres = fmt.Sprintf("gpu:%d", ngpus)
 	}
 
 	// Check
@@ -267,10 +276,36 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 			},
 		},
 	}
-	podSpec.InitContainers = append([]corev1.Container{initContainer}, podSpec.InitContainers...)
 
-	// Add hooks to get main container-id
+	// Add init-container-2
+	initContainer2 := corev1.Container{
+		Name:    "slurm-pipeline",
+		Image:   "curlimages/curl:7.75.0",
+		Command: []string{"/bin/sh", "-c"},
+		Args: []string{
+			fmt.Sprintf(
+				"set -x; "+
+					"url=%s; "+
+					"jobid=$(cat /k8s-slurm-injector/jobid); "+
+					"[[ $jobid = \"\" ]] && echo 'Failed to get job-id' >&2 && exit 1; "+
+					"[[ $jobid = \"error\" ]] && echo 'Failed to get job-id' >&2 && exit 1; "+
+					"trap 'exit 1' SIGHUP SIGINT SIGQUIT SIGTERM ; "+
+					"curl -s \"${url}/slurm/env?jobid=${jobid}\" > /k8s-slurm-injector/env || exit 1",
+				slurmWebhookURL),
+		},
+		ImagePullPolicy: "IfNotPresent",
+		VolumeMounts: []corev1.VolumeMount{
+			{
+				Name:      "k8s-slurm-injector-shared",
+				MountPath: "/k8s-slurm-injector",
+			},
+		},
+	}
+	podSpec.InitContainers = append([]corev1.Container{initContainer, initContainer2}, podSpec.InitContainers...)
+
+	// Mutate containers
 	for i := range podSpec.Containers {
+		// Add a script to get container-id
 		lifecycle := corev1.Lifecycle{
 			PostStart: &corev1.Handler{
 				Exec: &corev1.ExecAction{Command: []string{
@@ -291,9 +326,26 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 		}
 		podSpec.Containers[i].Lifecycle = &lifecycle
 		podSpec.Containers[i].VolumeMounts = append(podSpec.Containers[i].VolumeMounts, volumeMount)
+
+		// Set `CUDA_VISIBLE_DEVICES` in case GPU resources are not scheduled by kubernetes
+		if !jobInfo.GpuLimit && jobInfo.Gres != "" {
+			env := corev1.EnvVar{
+				Name:  "K8S_SLURM_INJECTOR_COMMAND",
+				Value: "export $(grep CUDA_VISIBLE_DEVICES /k8s-slurm-injector/env | xargs) > /dev/null && exec \"$@\"",
+			}
+			command := []string{
+				"sh",
+				"-c",
+				"echo ${K8S_SLURM_INJECTOR_COMMAND} | sh -s -- $0 $@",
+			}
+			args := append(podSpec.Containers[i].Command, podSpec.Containers[i].Args...)
+			podSpec.Containers[i].Env = append(podSpec.Containers[i].Env, env)
+			podSpec.Containers[i].Command = command
+			podSpec.Containers[i].Args = args
+		}
 	}
 
-	// Add sidecar
+	// Add container `slurm-watcher` as sidecar
 	sidecar := corev1.Container{
 		Name:    "slurm-watcher",
 		Image:   "curlimages/curl:7.75.0",
@@ -314,7 +366,7 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 					"sleep 1; "+
 					"count=$((count+1)); "+
 					"done; "+
-					"[[ $count -ge 10 ]] && exit 1; "+
+					"[[ $count -ge 10 ]] && scancel && exit 1; "+
 					"cid=$(cat /k8s-slurm-injector/container_id_0); "+
 					"[[ $cid = \"\" ]] && (echo 'Failed to get container_id' >&2; scancel) && exit 1; "+
 					"while true; "+
@@ -352,6 +404,7 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 	}
 	podSpec.Volumes = append([]corev1.Volume{volume}, podSpec.Volumes...)
 
+	// Apply mutations
 	switch v := obj.(type) {
 	case *corev1.Pod:
 		v.Spec = podSpec
@@ -373,6 +426,7 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 	annotations["k8s-slurm-injector/node"] = jobInfo.Node
 	annotations["k8s-slurm-injector/ntasks"] = jobInfo.Ntasks
 	annotations["k8s-slurm-injector/ncpus"] = jobInfo.Ncpus
+	annotations["k8s-slurm-injector/gpu-limit"] = strconv.FormatBool(jobInfo.GpuLimit)
 	annotations["k8s-slurm-injector/gres"] = jobInfo.Gres
 	annotations["k8s-slurm-injector/time"] = jobInfo.Time
 	annotations["k8s-slurm-injector/name"] = jobInfo.Name

@@ -14,6 +14,10 @@ type SbatchHandler struct {
 	handler handler
 }
 
+type JobEnvHandler struct {
+	handler handler
+}
+
 type JobStateHandler struct {
 	handler handler
 }
@@ -108,6 +112,33 @@ func (s SbatchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (h handler) sbatch() (http.Handler, error) {
 	return SbatchHandler{h}, nil
+}
+
+func (s JobEnvHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	jobid := r.URL.Query().Get("jobid")
+	s.handler.logger.Infof("state jobid=%s", jobid)
+
+	if jobid == "" {
+		s.handler.logger.Errorf("jobid is not given")
+		return
+	}
+
+	command := ssh_handler.SSHCommand{
+		Command: fmt.Sprintf("srun --jobid=%s env", jobid),
+	}
+	out, err := s.handler.ssh.RunCommand(command)
+
+	// Write to respond
+	if err == nil {
+		_, _ = fmt.Fprint(w, string(out))
+	} else {
+		w.WriteHeader(http.StatusInternalServerError)
+		s.handler.logger.Errorf("failed to get envrionment variables of job: %s", err.Error())
+	}
+}
+
+func (h handler) jobEnv() (http.Handler, error) {
+	return JobEnvHandler{h}, nil
 }
 
 func (s JobStateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {

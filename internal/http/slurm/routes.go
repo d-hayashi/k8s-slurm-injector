@@ -12,6 +12,12 @@ func (h handler) routes(router *http.ServeMux) error {
 	}
 	router.Handle("/slurm/sbatch", sbatch)
 
+	jobEnv, err := h.jobEnv()
+	if err != nil {
+		return err
+	}
+	router.Handle("/slurm/env", jobEnv)
+
 	jobState, err := h.jobState()
 	if err != nil {
 		return err
