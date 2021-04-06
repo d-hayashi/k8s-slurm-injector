@@ -40,26 +40,28 @@ type sidecarinjector struct {
 }
 
 type JobInformation struct {
-	Partition string
-	Node      string
-	Ntasks    string
-	Ncpus     string
-	GpuLimit  bool
-	Gres      string
-	Time      string
-	Name      string
+	NodeSpecificationMode string
+	Partition             string
+	Node                  string
+	Ntasks                string
+	Ncpus                 string
+	GpuLimit              bool
+	Gres                  string
+	Time                  string
+	Name                  string
 }
 
 func NewJobInformation() *JobInformation {
 	jobInfo := JobInformation{
-		Partition: "",
-		Node:      "",
-		Ntasks:    "1",
-		Ncpus:     "1",
-		GpuLimit:  false,
-		Gres:      "",
-		Time:      "1440",
-		Name:      "",
+		NodeSpecificationMode: "auto",
+		Partition:             "",
+		Node:                  "",
+		Ntasks:                "1",
+		Ncpus:                 "1",
+		GpuLimit:              false,
+		Gres:                  "",
+		Time:                  "1440",
+		Name:                  "",
 	}
 	return &jobInfo
 }
@@ -97,6 +99,10 @@ func (s sidecarinjector) validate(obj metav1.Object) error {
 
 	if err != nil {
 		return err
+	}
+
+	if jobInfo.NodeSpecificationMode != "manual" {
+		return nil
 	}
 
 	isNodeExists := false
@@ -157,6 +163,12 @@ func (s sidecarinjector) getJobInformation(obj metav1.Object, jobInfo *JobInform
 
 	// Get job-information
 	for key, value := range labels {
+		if key == "k8s-slurm-injector/node-specification-mode" {
+			jobInfo.NodeSpecificationMode = value
+			if value != "auto" && value != "manual" {
+				return fmt.Errorf("unrecognized label 'k8s-slurm-injector/node-specification-mode=%s'", value)
+			}
+		}
 		if key == "k8s-slurm-injector/partition" {
 			jobInfo.Partition = value
 		}
@@ -173,6 +185,12 @@ func (s sidecarinjector) getJobInformation(obj metav1.Object, jobInfo *JobInform
 	// Get node name
 	if podSpec.NodeName != "" {
 		jobInfo.Node = podSpec.NodeName
+	}
+
+	// Auto mode
+	if jobInfo.NodeSpecificationMode != "manual" {
+		jobInfo.Partition = ""
+		jobInfo.Node = "::K8S_SLURM_INJECTOR_NODE::"
 	}
 
 	// Get ncpus
@@ -198,8 +216,8 @@ func (s sidecarinjector) getJobInformation(obj metav1.Object, jobInfo *JobInform
 	}
 
 	// Check
-	if jobInfo.Node == "" {
-		return fmt.Errorf("node must be specified with label 'k8s-slurm-injector/node'")
+	if jobInfo.NodeSpecificationMode == "manual" && jobInfo.Node == "" {
+		return fmt.Errorf("you must either use auto-injection mode or manually specify a node with label 'k8s-slurm-injector/node'")
 	}
 
 	return nil
@@ -208,6 +226,7 @@ func (s sidecarinjector) getJobInformation(obj metav1.Object, jobInfo *JobInform
 func (s sidecarinjector) constructSbatchURL(slurmWebhookURL string, jobInfo JobInformation) string {
 	sbatchURL := slurmWebhookURL +
 		"/slurm/sbatch?" +
+		fmt.Sprintf("nodespecificationmode=%s&", jobInfo.NodeSpecificationMode) +
 		fmt.Sprintf("partition=%s&", jobInfo.Partition) +
 		fmt.Sprintf("node=%s&", jobInfo.Node) +
 		fmt.Sprintf("ntasks=%s&", jobInfo.Ntasks) +
@@ -253,8 +272,25 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 		Name:    "slurm-injector",
 		Image:   "curlimages/curl:7.75.0",
 		Command: []string{"/bin/sh", "-c"},
+		Env: []corev1.EnvVar{
+			{
+				Name: "K8S_SLURM_INJECTOR_NODE",
+				ValueFrom: &corev1.EnvVarSource{
+					FieldRef: &corev1.ObjectFieldSelector{
+						FieldPath: "spec.nodeName",
+					},
+				},
+			},
+		},
 		Args: []string{
-			fmt.Sprintf("set -x ; slurmWebhookURL=\"%s\" && sbatchURL=\"%s\" && ", slurmWebhookURL, sbatchURL) +
+			"set -x; " +
+				fmt.Sprintf("slurmWebhookURL=\"%s\" && ", slurmWebhookURL) +
+				fmt.Sprintf("sbatchURL=\"%s\" && ", sbatchURL) +
+				fmt.Sprintf("nodeName=\"%s\"; ", jobInfo.Node) +
+				"if [[ ${nodeName} = \"::K8S_SLURM_INJECTOR_NODE::\" ]]; " +
+				"then " +
+				"sbatchURL=$(echo ${sbatchURL} | sed \"s/::K8S_SLURM_INJECTOR_NODE::/${K8S_SLURM_INJECTOR_NODE}/\"); " +
+				"fi; " +
 				"jobid=$(curl -s ${sbatchURL}) && " +
 				"echo \"Job ID: ${jobid}\" && " +
 				"echo ${jobid} > /k8s-slurm-injector/jobid && " +
@@ -422,6 +458,7 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 		annotations = map[string]string{}
 	}
 	annotations["k8s-slurm-injector/status"] = "injected"
+	annotations["k8s-slurm-injector/node-specification-mode"] = jobInfo.NodeSpecificationMode
 	annotations["k8s-slurm-injector/partition"] = jobInfo.Partition
 	annotations["k8s-slurm-injector/node"] = jobInfo.Node
 	annotations["k8s-slurm-injector/ntasks"] = jobInfo.Ntasks

@@ -47,6 +47,7 @@ func runApp() error {
 		logrusLogEntry.Logger.SetFormatter(&logrus.JSONFormatter{})
 	}
 	logger := log.NewLogrus(logrusLogEntry).WithKV(log.KV{"version": Version})
+	logger.Debugf("debug mode")
 
 	// Dependencies.
 	metricsRec := internalmetricsprometheus.NewRecorder(prometheus.DefaultRegisterer)

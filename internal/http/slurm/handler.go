@@ -29,6 +29,7 @@ type ScancelHandler struct {
 func (s SbatchHandler) parseQueryParams(r *http.Request, jobInfo *sidecar.JobInformation) error {
 	regString := regexp.MustCompile(`[^0-9A-Za-z_#:-]`)
 	regDecimal := regexp.MustCompile(`[^0-9]`)
+	jobInfo.NodeSpecificationMode = regString.ReplaceAllString(r.URL.Query().Get("nodespecificationmode"), "")
 	jobInfo.Partition = regString.ReplaceAllString(r.URL.Query().Get("partition"), "")
 	jobInfo.Node = regString.ReplaceAllString(r.URL.Query().Get("node"), "")
 	jobInfo.Ntasks = regDecimal.ReplaceAllString(r.URL.Query().Get("ntasks"), "")
@@ -36,6 +37,44 @@ func (s SbatchHandler) parseQueryParams(r *http.Request, jobInfo *sidecar.JobInf
 	jobInfo.Gres = regString.ReplaceAllString(r.URL.Query().Get("gres"), "")
 	jobInfo.Time = regDecimal.ReplaceAllString(r.URL.Query().Get("time"), "")
 	jobInfo.Name = regString.ReplaceAllString(r.URL.Query().Get("name"), "")
+
+	return nil
+}
+
+func (s SbatchHandler) prepareParams(jobInfo *sidecar.JobInformation) error {
+	// Automatically select partition
+	if jobInfo.NodeSpecificationMode != "manual" && jobInfo.Partition == "" {
+		for _, nodeInfo := range s.handler.nodeInfo {
+			if nodeInfo.node == jobInfo.Node {
+				jobInfo.Partition = nodeInfo.partition
+			}
+		}
+		if jobInfo.Partition == "" {
+			return fmt.Errorf("unrecognized node: %s", jobInfo.Node)
+		}
+	}
+
+	// Check nodes
+	isNodeExists := false
+	for _, nodeInfo := range s.handler.nodeInfo {
+		if nodeInfo.node == jobInfo.Node {
+			isNodeExists = true
+		}
+	}
+	if !isNodeExists {
+		return fmt.Errorf("node %s does not exist", jobInfo.Node)
+	}
+
+	// Check partitions
+	isPartitionExists := false
+	for _, nodeInfo := range s.handler.nodeInfo {
+		if nodeInfo.partition == jobInfo.Partition {
+			isPartitionExists = true
+		}
+	}
+	if !isPartitionExists {
+		return fmt.Errorf("partition %s does not exist", jobInfo.Partition)
+	}
 
 	return nil
 }
@@ -85,6 +124,9 @@ func (s SbatchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Parse request and construct commands
 	err = s.parseQueryParams(r, jobInfo)
+	if err == nil {
+		err = s.prepareParams(jobInfo)
+	}
 	if err == nil {
 		err = s.constructCommand(jobInfo, &commands)
 	}
