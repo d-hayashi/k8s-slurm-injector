@@ -72,7 +72,7 @@ func (s SbatchHandler) prepareParams(jobInfo *sidecar.JobInformation) error {
 			isPartitionExists = true
 		}
 	}
-	if ! isPartitionExists {
+	if !isPartitionExists {
 		return fmt.Errorf("partition %s does not exist", jobInfo.Partition)
 	}
 
