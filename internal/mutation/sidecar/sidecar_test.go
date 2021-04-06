@@ -51,11 +51,11 @@ func TestSidecarinjector_Inject(t *testing.T) {
 						"k8s-slurm-injector/node-specification-mode": "manual",
 						"k8s-slurm-injector/partition":               "",
 						"k8s-slurm-injector/node":                    "node1",
-						"k8s-slurm-injector/ntasks":                  "",
+						"k8s-slurm-injector/ntasks":                  "1",
 						"k8s-slurm-injector/ncpus":                   "1",
 						"k8s-slurm-injector/gpu-limit":               "false",
 						"k8s-slurm-injector/gres":                    "",
-						"k8s-slurm-injector/time":                    "",
+						"k8s-slurm-injector/time":                    "1440",
 						"k8s-slurm-injector/name":                    "",
 					},
 				},
@@ -130,11 +130,11 @@ func TestSidecarinjector_Inject(t *testing.T) {
 						"k8s-slurm-injector/node-specification-mode": "manual",
 						"k8s-slurm-injector/partition":               "",
 						"k8s-slurm-injector/node":                    "node1",
-						"k8s-slurm-injector/ntasks":                  "",
+						"k8s-slurm-injector/ntasks":                  "1",
 						"k8s-slurm-injector/ncpus":                   "1",
 						"k8s-slurm-injector/gpu-limit":               "false",
 						"k8s-slurm-injector/gres":                    "",
-						"k8s-slurm-injector/time":                    "",
+						"k8s-slurm-injector/time":                    "1440",
 						"k8s-slurm-injector/name":                    "",
 					},
 				},
@@ -181,11 +181,11 @@ func TestSidecarinjector_Inject(t *testing.T) {
 						"k8s-slurm-injector/node-specification-mode": "auto",
 						"k8s-slurm-injector/partition":               "",
 						"k8s-slurm-injector/node":                    "::K8S_SLURM_INJECTOR_NODE::",
-						"k8s-slurm-injector/ntasks":                  "",
+						"k8s-slurm-injector/ntasks":                  "1",
 						"k8s-slurm-injector/ncpus":                   "2",
 						"k8s-slurm-injector/gpu-limit":               "true",
 						"k8s-slurm-injector/gres":                    "gpu:1",
-						"k8s-slurm-injector/time":                    "",
+						"k8s-slurm-injector/time":                    "1440",
 						"k8s-slurm-injector/name":                    "",
 					},
 				},
@@ -201,6 +201,55 @@ func TestSidecarinjector_Inject(t *testing.T) {
 			expObj: &corev1.Service{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test",
+				},
+			},
+		},
+
+		"Having a pod with containers with environment variables": {
+			obj: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "container-1",
+							Image: "image",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									"cpu":            cpuResource,
+									"nvidia.com/gpu": gpuResource,
+								},
+								Limits: corev1.ResourceList{
+									"cpu":            cpuResource,
+									"nvidia.com/gpu": gpuResource,
+								},
+							},
+							Env: []corev1.EnvVar{
+								{
+									Name:  "K8S_SLURM_INJECTOR_INJECTION",
+									Value: "enabled",
+								},
+							},
+						},
+					},
+				},
+			},
+			expObj: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test",
+					Annotations: map[string]string{
+						"k8s-slurm-injector/status":                  "injected",
+						"k8s-slurm-injector/node-specification-mode": "",
+						"k8s-slurm-injector/partition":               "",
+						"k8s-slurm-injector/node":                    "::K8S_SLURM_INJECTOR_NODE::",
+						"k8s-slurm-injector/ntasks":                  "1",
+						"k8s-slurm-injector/ncpus":                   "2",
+						"k8s-slurm-injector/gpu-limit":               "true",
+						"k8s-slurm-injector/gres":                    "gpu:1",
+						"k8s-slurm-injector/time":                    "1440",
+						"k8s-slurm-injector/name":                    "",
+					},
 				},
 			},
 		},

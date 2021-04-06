@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: sample-pod-auto
+spec:
+  containers:
+    - name: busybox
+      env:
+        - name: K8S_SLURM_INJECTOR_INJECTION
+          value: enabled
+      image: curlimages/curl:7.75.0
+      args:
+        - env
+  restartPolicy: Never
