@@ -75,6 +75,9 @@ func (s *sidecarinjector) SetPartitions(partitions []string) {
 }
 
 func (s sidecarinjector) isInjectionEnabled(obj metav1.Object) bool {
+	var podSpec corev1.PodSpec
+	isInjection := false
+
 	// Get labels
 	labels := obj.GetLabels()
 	if labels == nil {
@@ -82,10 +85,30 @@ func (s sidecarinjector) isInjectionEnabled(obj metav1.Object) bool {
 	}
 
 	// Check labels
-	isInjection := false
 	for key, value := range labels {
 		if key == "k8s-slurm-injector/injection" && value == "enabled" {
 			isInjection = true
+		}
+	}
+
+	// Get pod-spec
+	switch v := obj.(type) {
+	case *corev1.Pod:
+		podSpec = v.Spec
+	case *batchv1.Job:
+		podSpec = v.Spec.Template.Spec
+	case *batchv1beta1.CronJob:
+		podSpec = v.Spec.JobTemplate.Spec.Template.Spec
+	default:
+		return false
+	}
+
+	// Check environment variables
+	for _, container := range podSpec.Containers {
+		for _, env := range container.Env {
+			if env.Name == "K8S_SLURM_INJECTOR_INJECTION" && env.Value == "enabled" {
+				isInjection = true
+			}
 		}
 	}
 
@@ -145,6 +168,12 @@ func (s sidecarinjector) getSlurmWebhookURL() string {
 
 func (s sidecarinjector) getJobInformation(obj metav1.Object, jobInfo *JobInformation) error {
 	var podSpec corev1.PodSpec
+	labels := obj.GetLabels()
+	ntasks := int64(1)
+	ncpus := int64(0)
+	ngpus := int64(0)
+	time := int64(1440)
+	name := ""
 
 	switch v := obj.(type) {
 	case *corev1.Pod:
@@ -156,7 +185,6 @@ func (s sidecarinjector) getJobInformation(obj metav1.Object, jobInfo *JobInform
 	}
 
 	// Get labels
-	labels := obj.GetLabels()
 	if labels == nil {
 		labels = map[string]string{}
 	}
@@ -175,10 +203,20 @@ func (s sidecarinjector) getJobInformation(obj metav1.Object, jobInfo *JobInform
 		if key == "k8s-slurm-injector/node" {
 			jobInfo.Node = value
 		}
+		if key == "k8s-slurm-injector/ntasks" {
+			ntasks, _ = strconv.ParseInt(value, 10, 64)
+		}
+		if key == "k8s-slurm-injector/ncpus" {
+			ncpus, _ = strconv.ParseInt(value, 10, 64)
+		}
 		if key == "k8s-slurm-injector/ngpus" {
-			if value != "" && value != "0" {
-				jobInfo.Gres = fmt.Sprintf("gpu:%s", value)
-			}
+			ngpus, _ = strconv.ParseInt(value, 10, 64)
+		}
+		if key == "k8s-slurm-injector/time" {
+			time, _ = strconv.ParseInt(value, 10, 64)
+		}
+		if key == "k8s-slurm-injector/name" {
+			name = value
 		}
 	}
 
@@ -193,8 +231,43 @@ func (s sidecarinjector) getJobInformation(obj metav1.Object, jobInfo *JobInform
 		jobInfo.Node = "::K8S_SLURM_INJECTOR_NODE::"
 	}
 
+	// Retrieve from environment variables
+	for _, container := range podSpec.Containers {
+		for _, env := range container.Env {
+			if env.Name == "K8S_SLURM_INJECTOR_NODE_SPECIFICATION_MODE" {
+				jobInfo.NodeSpecificationMode = env.Value
+				if env.Value != "auto" && env.Value != "manual" {
+					return fmt.Errorf("unrecognized value '%s=%s'", env.Name, env.Value)
+				}
+			}
+			if env.Name == "K8S_SLURM_INJECTOR_PARTITION" {
+				jobInfo.Partition = env.Value
+			}
+			if env.Name == "K8S_SLURM_INJECTOR_NODE" {
+				jobInfo.Node = env.Value
+			}
+			if env.Name == "K8S_SLURM_INJECTOR_NTASKS" {
+				ntasks, _ = strconv.ParseInt(env.Value, 10, 64)
+			}
+			if env.Name == "K8S_SLURM_INJECTOR_NCPUS" {
+				ncpus, _ = strconv.ParseInt(env.Value, 10, 64)
+			}
+			if env.Name == "K8S_SLURM_INJECTOR_NGPUS" {
+				ngpus, _ = strconv.ParseInt(env.Value, 10, 64)
+			}
+			if env.Name == "K8S_SLURM_INJECTOR_TIME" {
+				time, _ = strconv.ParseInt(env.Value, 10, 64)
+			}
+			if env.Name == "K8S_SLURM_INJECTOR_NAME" {
+				name = env.Value
+			}
+		}
+	}
+	jobInfo.Ntasks = fmt.Sprintf("%d", ntasks)
+	jobInfo.Time = fmt.Sprintf("%d", time)
+	jobInfo.Name = name
+
 	// Get ncpus
-	ncpus := int64(0)
 	for _, container := range podSpec.Containers {
 		ncpus = ncpus + container.Resources.Requests.Cpu().Value()
 	}
@@ -204,7 +277,6 @@ func (s sidecarinjector) getJobInformation(obj metav1.Object, jobInfo *JobInform
 	jobInfo.Ncpus = fmt.Sprintf("%d", ncpus)
 
 	// Get gresp
-	ngpus := int64(0)
 	for _, container := range podSpec.Containers {
 		if val, ok := container.Resources.Limits["nvidia.com/gpu"]; ok {
 			ngpus = ngpus + val.Value()
