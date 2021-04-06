@@ -1,13 +1,10 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  name: sample-pod
+  name: sample-pod-auto
   labels:
     k8s-slurm-injector/injection: enabled
-    k8s-slurm-injector/node-specification-mode: manual
-    k8s-slurm-injector/partition: meti
-    k8s-slurm-injector/node: divo
-    k8s-slurm-injector/ngpus: "1"
+    k8s-slurm-injector/node-specification-mode: auto
 spec:
   containers:
     - name: busybox
