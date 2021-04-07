@@ -424,7 +424,7 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 				"[[ $jobid = \"\" ]] && echo 'Failed to get job-id' >&2 && exit 1; " +
 				"[[ $jobid = \"error\" ]] && echo 'Failed to get job-id' >&2 && exit 1; " +
 				"trap 'scancel || exit 0' SIGHUP SIGINT SIGQUIT SIGTERM ; " +
-				"curl -s \"${envURL}&jobid=${jobid}\" > /k8s-slurm-injector/env || exit 1",
+				"curl -s \"${envURL}&jobid=${jobid}\" > /k8s-slurm-injector/env || scancel",
 		},
 		ImagePullPolicy: "IfNotPresent",
 		VolumeMounts: []corev1.VolumeMount{
