@@ -3,8 +3,6 @@ package slurm
 import (
 	"context"
 	"fmt"
-	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/util/json"
 	"net/http"
 	"regexp"
 	"strings"
@@ -12,7 +10,9 @@ import (
 	"github.com/d-hayashi/k8s-slurm-injector/internal/mutation/sidecar"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/ssh_handler"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/json"
 )
 
 type SbatchHandler struct {
@@ -234,6 +234,32 @@ func (s JobEnvToConfigMapHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Create env data
+	env := map[string]string{}
+	isUse := false
+	for _, variable := range strings.Split(out, "\n") {
+		isUse = false
+		keyvalue := strings.Split(variable, "=")
+		if len(keyvalue) != 2 {
+			continue
+		}
+		key := keyvalue[0]
+		value := keyvalue[1]
+
+		// Filter
+		if strings.HasPrefix(key, "SLURM_") {
+			isUse = true
+		}
+		if strings.HasPrefix(key, "CUDA_") {
+			isUse = true
+		}
+
+		// Substitute
+		if isUse {
+			env[key] = value
+		}
+	}
+
 	// Get config-map if exists
 	cm, err := s.handler.clientset.CoreV1().ConfigMaps(namespace).Get(context.TODO(), configMapName, metav1.GetOptions{})
 	if errors.IsNotFound(err) {
@@ -248,10 +274,8 @@ func (s JobEnvToConfigMapHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 					"k8s-slurm-injector/jobid": jobid,
 				},
 			},
-			Immutable: nil,
-			Data: map[string]string{
-				"env": out,
-			},
+			Immutable:  nil,
+			Data:       env,
 			BinaryData: nil,
 		}
 		_, err := s.handler.clientset.CoreV1().ConfigMaps(namespace).Create(context.TODO(), cm, metav1.CreateOptions{})
@@ -286,10 +310,8 @@ func (s JobEnvToConfigMapHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 					"k8s-slurm-injector/last-applied-configuration": string(bytes),
 				},
 			},
-			Immutable: nil,
-			Data: map[string]string{
-				"env": out,
-			},
+			Immutable:  nil,
+			Data:       env,
 			BinaryData: nil,
 		}
 		_, err = s.handler.clientset.CoreV1().ConfigMaps(namespace).Update(context.TODO(), cm, metav1.UpdateOptions{})
