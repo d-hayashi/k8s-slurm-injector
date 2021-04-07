@@ -85,7 +85,7 @@ func (f finalizer) Finalize(_ context.Context, obj metav1.Object) (string, error
 				_, err = f.slurmHandler.SCancel(jobid)
 				if err != nil {
 					// TODO: Retry
-					print(err)
+					_ = fmt.Errorf("%s", err.Error())
 				}
 			}
 
@@ -93,7 +93,7 @@ func (f finalizer) Finalize(_ context.Context, obj metav1.Object) (string, error
 			err = f.configMapHandler.DeleteConfigMap(namespace, configMapName)
 			if err != nil {
 				// TODO: Retry
-				print(err)
+				_ = fmt.Errorf("%s", err.Error())
 			}
 		}
 	}
