@@ -456,33 +456,18 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 		podSpec.Containers[i].Lifecycle = &lifecycle
 		podSpec.Containers[i].VolumeMounts = append(podSpec.Containers[i].VolumeMounts, volumeMount)
 
-		// Set `CUDA_VISIBLE_DEVICES` in case GPU resources are not scheduled by kubernetes
-		if !jobInfo.GpuLimit && jobInfo.Gres != "" {
-			//env := corev1.EnvVar{
-			//	Name:  "K8S_SLURM_INJECTOR_COMMAND",
-			//	Value: "export $(grep CUDA_VISIBLE_DEVICES /k8s-slurm-injector/env | xargs) > /dev/null && exec \"$@\"",
-			//}
-			//command := []string{
-			//	"sh",
-			//	"-c",
-			//	"echo ${K8S_SLURM_INJECTOR_COMMAND} | sh -s -- $0 $@",
-			//}
-			//args := append(podSpec.Containers[i].Command, podSpec.Containers[i].Args...)
-			//podSpec.Containers[i].Env = append(podSpec.Containers[i].Env, env)
-			//podSpec.Containers[i].Command = command
-			//podSpec.Containers[i].Args = args
-			optional := true
-			podSpec.Containers[i].EnvFrom = append(podSpec.Containers[i].EnvFrom,
-				corev1.EnvFromSource{
-					ConfigMapRef: &corev1.ConfigMapEnvSource{
-						LocalObjectReference: corev1.LocalObjectReference{
-							Name: configMapName,
-						},
-						Optional: &optional,
+		// Set environment variables allocated by Slurm
+		optional := true
+		podSpec.Containers[i].EnvFrom = append(podSpec.Containers[i].EnvFrom,
+			corev1.EnvFromSource{
+				ConfigMapRef: &corev1.ConfigMapEnvSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: configMapName,
 					},
+					Optional: &optional,
 				},
-			)
-		}
+			},
+		)
 	}
 
 	// Add container `slurm-watcher` as sidecar
