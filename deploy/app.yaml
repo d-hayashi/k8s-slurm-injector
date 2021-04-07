@@ -47,6 +47,10 @@ spec:
               mountPath: /root/.ssh/id_rsa
               subPath: id_rsa
               readOnly: true
+          resources:
+            limits:
+              cpu: "0.5"
+              memory: "100Mi"
       volumes:
         - name: webhook-certs
           secret:
