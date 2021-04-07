@@ -47,6 +47,8 @@ func TestSidecarinjector_Inject(t *testing.T) {
 						"k8s-slurm-injector/node":                    "node1",
 					},
 					Annotations: map[string]string{
+						"k8s-slurm-injector/namespace":               "",
+						"k8s-slurm-injector/objectname":              "pod-test",
 						"k8s-slurm-injector/status":                  "injected",
 						"k8s-slurm-injector/node-specification-mode": "manual",
 						"k8s-slurm-injector/partition":               "",
@@ -126,6 +128,8 @@ func TestSidecarinjector_Inject(t *testing.T) {
 						"k8s-slurm-injector/node":                    "node1",
 					},
 					Annotations: map[string]string{
+						"k8s-slurm-injector/namespace":               "",
+						"k8s-slurm-injector/objectname":              "job-test",
 						"k8s-slurm-injector/status":                  "injected",
 						"k8s-slurm-injector/node-specification-mode": "manual",
 						"k8s-slurm-injector/partition":               "",
@@ -177,6 +181,8 @@ func TestSidecarinjector_Inject(t *testing.T) {
 						"k8s-slurm-injector/node-specification-mode": "auto",
 					},
 					Annotations: map[string]string{
+						"k8s-slurm-injector/namespace":               "",
+						"k8s-slurm-injector/objectname":              "pod-test",
 						"k8s-slurm-injector/status":                  "injected",
 						"k8s-slurm-injector/node-specification-mode": "auto",
 						"k8s-slurm-injector/partition":               "",
@@ -239,6 +245,8 @@ func TestSidecarinjector_Inject(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test",
 					Annotations: map[string]string{
+						"k8s-slurm-injector/namespace":               "",
+						"k8s-slurm-injector/objectname":              "pod-test",
 						"k8s-slurm-injector/status":                  "injected",
 						"k8s-slurm-injector/node-specification-mode": "",
 						"k8s-slurm-injector/partition":               "",

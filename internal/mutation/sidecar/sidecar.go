@@ -40,6 +40,8 @@ type sidecarinjector struct {
 }
 
 type JobInformation struct {
+	Namespace             string
+	ObjectName            string
 	NodeSpecificationMode string
 	Partition             string
 	Node                  string
@@ -53,6 +55,8 @@ type JobInformation struct {
 
 func NewJobInformation() *JobInformation {
 	jobInfo := JobInformation{
+		Namespace:             "",
+		ObjectName:            "",
 		NodeSpecificationMode: "auto",
 		Partition:             "",
 		Node:                  "",
@@ -168,6 +172,8 @@ func (s sidecarinjector) getSlurmWebhookURL() string {
 
 func (s sidecarinjector) getJobInformation(obj metav1.Object, jobInfo *JobInformation) error {
 	var podSpec corev1.PodSpec
+	namespace := ""
+	objectname := ""
 	labels := obj.GetLabels()
 	ntasks := int64(1)
 	ncpus := int64(0)
@@ -178,11 +184,19 @@ func (s sidecarinjector) getJobInformation(obj metav1.Object, jobInfo *JobInform
 	switch v := obj.(type) {
 	case *corev1.Pod:
 		podSpec = v.Spec
+		namespace = v.Namespace
+		objectname = fmt.Sprintf("pod-%s", v.Name)
 	case *batchv1.Job:
 		podSpec = v.Spec.Template.Spec
+		namespace = v.Namespace
+		objectname = fmt.Sprintf("job-%s", v.Name)
 	case *batchv1beta1.CronJob:
 		podSpec = v.Spec.JobTemplate.Spec.Template.Spec
+		namespace = v.Namespace
+		objectname = fmt.Sprintf("cronjob-%s", v.Name)
 	}
+	jobInfo.Namespace = namespace
+	jobInfo.ObjectName = objectname
 
 	// Get labels
 	if labels == nil {
@@ -295,9 +309,10 @@ func (s sidecarinjector) getJobInformation(obj metav1.Object, jobInfo *JobInform
 	return nil
 }
 
-func (s sidecarinjector) constructSbatchURL(slurmWebhookURL string, jobInfo JobInformation) string {
-	sbatchURL := slurmWebhookURL +
-		"/slurm/sbatch?" +
+func (s sidecarinjector) constructURL(slurmWebhookURL string, jobInfo JobInformation, action string) string {
+	url := slurmWebhookURL + "/slurm/" + action + "?" +
+		fmt.Sprintf("namespace=%s&", jobInfo.Namespace) +
+		fmt.Sprintf("objectname=%s&", jobInfo.ObjectName) +
 		fmt.Sprintf("nodespecificationmode=%s&", jobInfo.NodeSpecificationMode) +
 		fmt.Sprintf("partition=%s&", jobInfo.Partition) +
 		fmt.Sprintf("node=%s&", jobInfo.Node) +
@@ -307,7 +322,9 @@ func (s sidecarinjector) constructSbatchURL(slurmWebhookURL string, jobInfo JobI
 		fmt.Sprintf("time=%s&", jobInfo.Time) +
 		fmt.Sprintf("name=%s&", jobInfo.Name)
 
-	return sbatchURL
+	url = strings.TrimSuffix(url, "&")
+
+	return url
 }
 
 func (s sidecarinjector) mutateObject(obj metav1.Object) error {
@@ -327,13 +344,17 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 		return fmt.Errorf("unsupported type")
 	}
 
-	// Construct sbatch URL
+	// Construct URLs
 	slurmWebhookURL := s.getSlurmWebhookURL()
 	err = s.getJobInformation(obj, &jobInfo)
 	if err != nil {
 		return fmt.Errorf("failed to get job-information: %s", err.Error())
 	}
-	sbatchURL := s.constructSbatchURL(slurmWebhookURL, jobInfo)
+	sbatchURL := s.constructURL(slurmWebhookURL, jobInfo, "sbatch")
+	stateURL := s.constructURL(slurmWebhookURL, jobInfo, "state")
+	envURL := s.constructURL(slurmWebhookURL, jobInfo, "envtoconfigmap")
+	scancelURL := s.constructURL(slurmWebhookURL, jobInfo, "scancel")
+	configMapName := fmt.Sprintf("k8s-slurm-injector-config-%s", jobInfo.ObjectName)
 
 	// Enable shareProcessNamespace
 	shareProcessNamespace := true
@@ -356,7 +377,7 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 		},
 		Args: []string{
 			"set -x; " +
-				fmt.Sprintf("slurmWebhookURL=\"%s\" && ", slurmWebhookURL) +
+				fmt.Sprintf("stateURL=\"%s\" && ", stateURL) +
 				fmt.Sprintf("sbatchURL=\"%s\" && ", sbatchURL) +
 				fmt.Sprintf("nodeName=\"%s\"; ", jobInfo.Node) +
 				"if [[ ${nodeName} = \"::K8S_SLURM_INJECTOR_NODE::\" ]]; " +
@@ -370,7 +391,7 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 				"do " +
 				"sleep 1; " +
 				"echo \"$jobid\" | egrep -q '^[0-9]+$' || exit 1; " +
-				"state=$(curl -s ${slurmWebhookURL}/slurm/state?jobid=${jobid}); " +
+				"state=$(curl -s \"${stateURL}&jobid=${jobid}\"); " +
 				"[[ \"$state\" = \"PENDING\" ]] && continue; " +
 				"[[ \"$state\" = \"RUNNING\" ]] && break; " +
 				"[[ \"$state\" = \"CANCELLED\" ]] && exit 1; " +
@@ -393,13 +414,13 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 		Args: []string{
 			fmt.Sprintf(
 				"set -x; "+
-					"url=%s; "+
+					"url=\"%s\"; "+
 					"jobid=$(cat /k8s-slurm-injector/jobid); "+
 					"[[ $jobid = \"\" ]] && echo 'Failed to get job-id' >&2 && exit 1; "+
 					"[[ $jobid = \"error\" ]] && echo 'Failed to get job-id' >&2 && exit 1; "+
 					"trap 'exit 1' SIGHUP SIGINT SIGQUIT SIGTERM ; "+
-					"curl -s \"${url}/slurm/env?jobid=${jobid}\" > /k8s-slurm-injector/env || exit 1",
-				slurmWebhookURL),
+					"curl -s \"${url}&jobid=${jobid}\" > /k8s-slurm-injector/env || exit 1",
+				envURL),
 		},
 		ImagePullPolicy: "IfNotPresent",
 		VolumeMounts: []corev1.VolumeMount{
@@ -435,22 +456,18 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 		podSpec.Containers[i].Lifecycle = &lifecycle
 		podSpec.Containers[i].VolumeMounts = append(podSpec.Containers[i].VolumeMounts, volumeMount)
 
-		// Set `CUDA_VISIBLE_DEVICES` in case GPU resources are not scheduled by kubernetes
-		if !jobInfo.GpuLimit && jobInfo.Gres != "" {
-			env := corev1.EnvVar{
-				Name:  "K8S_SLURM_INJECTOR_COMMAND",
-				Value: "export $(grep CUDA_VISIBLE_DEVICES /k8s-slurm-injector/env | xargs) > /dev/null && exec \"$@\"",
-			}
-			command := []string{
-				"sh",
-				"-c",
-				"echo ${K8S_SLURM_INJECTOR_COMMAND} | sh -s -- $0 $@",
-			}
-			args := append(podSpec.Containers[i].Command, podSpec.Containers[i].Args...)
-			podSpec.Containers[i].Env = append(podSpec.Containers[i].Env, env)
-			podSpec.Containers[i].Command = command
-			podSpec.Containers[i].Args = args
-		}
+		// Set environment variables allocated by Slurm
+		optional := true
+		podSpec.Containers[i].EnvFrom = append(podSpec.Containers[i].EnvFrom,
+			corev1.EnvFromSource{
+				ConfigMapRef: &corev1.ConfigMapEnvSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: configMapName,
+					},
+					Optional: &optional,
+				},
+			},
+		)
 	}
 
 	// Add container `slurm-watcher` as sidecar
@@ -459,39 +476,38 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 		Image:   "curlimages/curl:7.75.0",
 		Command: []string{"/bin/sh", "-c"},
 		Args: []string{
-			fmt.Sprintf(
-				"url=%s; "+
-					"jobid=$(cat /k8s-slurm-injector/jobid); "+
-					"[[ $jobid = \"\" ]] && echo 'Failed to get job-id' >&2 && exit 1; "+
-					"[[ $jobid = \"error\" ]] && echo 'Failed to get job-id' >&2 && exit 1; "+
-					"getState() { curl -s \"${url}/slurm/state?jobid=${jobid}\"; }; "+
-					"scancel() { curl -s \"${url}/slurm/scancel?jobid=${jobid}\"; }; "+
-					"trap 'scancel' SIGHUP SIGINT SIGQUIT SIGTERM ; "+
-					"count=0; "+
-					"while [[ $count -lt 10 ]]; "+
-					"do "+
-					"[[ -f /k8s-slurm-injector/container_id_0 ]] && break; "+
-					"sleep 1; "+
-					"count=$((count+1)); "+
-					"done; "+
-					"[[ $count -ge 10 ]] && scancel && exit 1; "+
-					"cid=$(cat /k8s-slurm-injector/container_id_0); "+
-					"[[ $cid = \"\" ]] && (echo 'Failed to get container_id' >&2; scancel) && exit 1; "+
-					"while true; "+
-					"do "+
-					"sleep 1; "+
-					"cat /proc/*/cgroup | grep ${cid} > /dev/null || break; "+
-					"state=$(getState); "+
-					"[[ \"$state\" = \"COMPLETING\" ]] && break; "+
-					"[[ \"$state\" = \"CANCELLED\" ]] && break; "+
-					"done; "+
-					"for pid in $(cd /proc && echo [0-9]* | tr \" \" \"\\n\" | sort -n); "+
-					"do "+
-					"cat /proc/${pid}/cgroup | grep ${cid} >/dev/null && kill -9 ${pid} "+
-					"&& echo \"Process ${pid} has been killed by slurm.\" >&2; "+
-					"done; "+
-					"scancel",
-				slurmWebhookURL),
+			fmt.Sprintf("stateURL=\"%s\"; ", stateURL) +
+				fmt.Sprintf("scancelURL=\"%s\"; ", scancelURL) +
+				"jobid=$(cat /k8s-slurm-injector/jobid); " +
+				"[[ $jobid = \"\" ]] && echo 'Failed to get job-id' >&2 && exit 1; " +
+				"[[ $jobid = \"error\" ]] && echo 'Failed to get job-id' >&2 && exit 1; " +
+				"getState() { curl -s \"${stateURL}&jobid=${jobid}\"; }; " +
+				"scancel() { curl -s \"${scancelURL}&jobid=${jobid}\"; }; " +
+				"trap 'scancel' SIGHUP SIGINT SIGQUIT SIGTERM ; " +
+				"count=0; " +
+				"while [[ $count -lt 10 ]]; " +
+				"do " +
+				"[[ -f /k8s-slurm-injector/container_id_0 ]] && break; " +
+				"sleep 1; " +
+				"count=$((count+1)); " +
+				"done; " +
+				"[[ $count -ge 10 ]] && scancel && exit 1; " +
+				"cid=$(cat /k8s-slurm-injector/container_id_0); " +
+				"[[ $cid = \"\" ]] && (echo 'Failed to get container_id' >&2; scancel) && exit 1; " +
+				"while true; " +
+				"do " +
+				"sleep 1; " +
+				"cat /proc/*/cgroup | grep ${cid} > /dev/null || break; " +
+				"state=$(getState); " +
+				"[[ \"$state\" = \"COMPLETING\" ]] && break; " +
+				"[[ \"$state\" = \"CANCELLED\" ]] && break; " +
+				"done; " +
+				"for pid in $(cd /proc && echo [0-9]* | tr \" \" \"\\n\" | sort -n); " +
+				"do " +
+				"cat /proc/${pid}/cgroup | grep ${cid} >/dev/null && kill -9 ${pid} " +
+				"&& echo \"Process ${pid} has been killed by slurm.\" >&2; " +
+				"done; " +
+				"scancel",
 		},
 		ImagePullPolicy: "IfNotPresent",
 		VolumeMounts: []corev1.VolumeMount{
@@ -530,6 +546,8 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 		annotations = map[string]string{}
 	}
 	annotations["k8s-slurm-injector/status"] = "injected"
+	annotations["k8s-slurm-injector/namespace"] = jobInfo.Namespace
+	annotations["k8s-slurm-injector/objectname"] = jobInfo.ObjectName
 	annotations["k8s-slurm-injector/node-specification-mode"] = jobInfo.NodeSpecificationMode
 	annotations["k8s-slurm-injector/partition"] = jobInfo.Partition
 	annotations["k8s-slurm-injector/node"] = jobInfo.Node
