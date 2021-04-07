@@ -65,6 +65,40 @@ func (h handler) injectSidecar() (http.Handler, error) {
 	return whHandler, nil
 }
 
+// initFinalizer sets up the webhook handler for finalizing slurm jobs.
+func (h handler) initFinalizer() (http.Handler, error) {
+	mt := kwhmutating.MutatorFunc(func(ctx context.Context, ar *kwhmodel.AdmissionReview, obj metav1.Object) (*kwhmutating.MutatorResult, error) {
+		err := h.finalizer.Finalize(ctx, obj)
+		if err != nil {
+			return nil, fmt.Errorf("could not finalize the resource: %w", err)
+		}
+
+		return &kwhmutating.MutatorResult{
+			MutatedObject: obj,
+			Warnings:      []string{"Finalized the resource"},
+		}, nil
+	})
+
+	logger := kubewebhookLogger{Logger: h.logger.WithKV(log.KV{"lib": "kubewebhook", "webhook": "slurmFinalizer"})}
+	wh, err := kwhmutating.NewWebhook(kwhmutating.WebhookConfig{
+		ID:      "slurmFinalizer",
+		Logger:  logger,
+		Mutator: mt,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("could not create webhook: %w", err)
+	}
+	whHandler, err := kwhhttp.HandlerFor(kwhhttp.HandlerConfig{
+		Webhook: kwhwebhook.NewMeasuredWebhook(h.metrics, wh),
+		Logger:  logger,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("could not create handler from webhook: %w", err)
+	}
+
+	return whHandler, nil
+}
+
 // allmark sets up the webhook handler for marking all kubernetes resources using Kubewebhook library.
 func (h handler) allMark() (http.Handler, error) {
 	mt := kwhmutating.MutatorFunc(func(ctx context.Context, ar *kwhmodel.AdmissionReview, obj metav1.Object) (*kwhmutating.MutatorResult, error) {
