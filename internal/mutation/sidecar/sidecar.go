@@ -378,16 +378,19 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 		},
 		Args: []string{
 			"set -x; " +
-				fmt.Sprintf("stateURL=\"%s\" && ", stateURL) +
-				fmt.Sprintf("sbatchURL=\"%s\" && ", sbatchURL) +
-				fmt.Sprintf("nodeName=\"%s\"; ", jobInfo.Node) +
+				fmt.Sprintf("export stateURL=\"%s\" && ", stateURL) +
+				fmt.Sprintf("export sbatchURL=\"%s\" && ", sbatchURL) +
+				fmt.Sprintf("export scancelURL=\"%s\"; ", scancelURL) +
+				fmt.Sprintf("export nodeName=\"%s\"; ", jobInfo.Node) +
 				"if [[ ${nodeName} = \"::K8S_SLURM_INJECTOR_NODE::\" ]]; " +
 				"then " +
 				"sbatchURL=$(echo ${sbatchURL} | sed \"s/::K8S_SLURM_INJECTOR_NODE::/${K8S_SLURM_INJECTOR_NODE}/\"); " +
 				"fi; " +
-				"jobid=$(curl -s ${sbatchURL}) && " +
+				"export jobid=$(curl -s ${sbatchURL}) && " +
 				"echo \"Job ID: ${jobid}\" && " +
-				"echo ${jobid} > /k8s-slurm-injector/jobid && " +
+				"echo ${jobid} > /k8s-slurm-injector/jobid ; " +
+				"scancel() { curl -s \"${scancelURL}&jobid=${jobid}\"; }; " +
+				"trap 'scancel || exit 0' SIGHUP SIGINT SIGQUIT SIGTERM ; " +
 				"while true; " +
 				"do " +
 				"sleep 1; " +
@@ -413,15 +416,15 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 		Image:   "curlimages/curl:7.75.0",
 		Command: []string{"/bin/sh", "-c"},
 		Args: []string{
-			fmt.Sprintf(
-				"set -x; "+
-					"url=\"%s\"; "+
-					"jobid=$(cat /k8s-slurm-injector/jobid); "+
-					"[[ $jobid = \"\" ]] && echo 'Failed to get job-id' >&2 && exit 1; "+
-					"[[ $jobid = \"error\" ]] && echo 'Failed to get job-id' >&2 && exit 1; "+
-					"trap 'exit 1' SIGHUP SIGINT SIGQUIT SIGTERM ; "+
-					"curl -s \"${url}&jobid=${jobid}\" > /k8s-slurm-injector/env || exit 1",
-				envURL),
+			"set -x; " +
+				fmt.Sprintf("export envURL=\"%s\"; ", envURL) +
+				fmt.Sprintf("export scancelURL=\"%s\"; ", scancelURL) +
+				"export jobid=$(cat /k8s-slurm-injector/jobid); " +
+				"scancel() { curl -s \"${scancelURL}&jobid=${jobid}\"; }; " +
+				"[[ $jobid = \"\" ]] && echo 'Failed to get job-id' >&2 && exit 1; " +
+				"[[ $jobid = \"error\" ]] && echo 'Failed to get job-id' >&2 && exit 1; " +
+				"trap 'scancel || exit 0' SIGHUP SIGINT SIGQUIT SIGTERM ; " +
+				"curl -s \"${envURL}&jobid=${jobid}\" > /k8s-slurm-injector/env || scancel",
 		},
 		ImagePullPolicy: "IfNotPresent",
 		VolumeMounts: []corev1.VolumeMount{
@@ -484,7 +487,7 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 				"[[ $jobid = \"error\" ]] && echo 'Failed to get job-id' >&2 && exit 1; " +
 				"getState() { curl -s \"${stateURL}&jobid=${jobid}\"; }; " +
 				"scancel() { curl -s \"${scancelURL}&jobid=${jobid}\"; }; " +
-				"trap 'scancel' SIGHUP SIGINT SIGQUIT SIGTERM ; " +
+				"trap 'scancel || exit 0' SIGHUP SIGINT SIGQUIT SIGTERM ; " +
 				"count=0; " +
 				"while [[ $count -lt 10 ]]; " +
 				"do " +
@@ -508,7 +511,7 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 				"cat /proc/${pid}/cgroup | grep ${cid} >/dev/null && kill -9 ${pid} " +
 				"&& echo \"Process ${pid} has been killed by slurm.\" >&2; " +
 				"done; " +
-				"scancel",
+				"scancel || exit 0",
 		},
 		ImagePullPolicy: "IfNotPresent",
 		VolumeMounts: []corev1.VolumeMount{
