@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/d-hayashi/k8s-slurm-injector/internal/log"
+	"github.com/d-hayashi/k8s-slurm-injector/internal/mutation/finalizer"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/mutation/mark"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/mutation/prometheus"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/mutation/sidecar"
@@ -16,6 +17,7 @@ type Config struct {
 	MetricsRecorder            MetricsRecorder
 	Marker                     mark.Marker
 	SidecarInjector            sidecar.SidecarInjector
+	Finalizer                  finalizer.Finalizer
 	IngressRegexHostValidator  ingress.Validator
 	IngressSingleHostValidator ingress.Validator
 	ServiceMonitorSafer        prometheus.ServiceMonitorSafer
@@ -29,6 +31,10 @@ func (c *Config) defaults() error {
 
 	if c.SidecarInjector == nil {
 		return fmt.Errorf("sidecar injector is required")
+	}
+
+	if c.Finalizer == nil {
+		return fmt.Errorf("finalizer is required")
 	}
 
 	if c.IngressRegexHostValidator == nil {
@@ -57,6 +63,7 @@ func (c *Config) defaults() error {
 type handler struct {
 	marker           mark.Marker
 	sidecar          sidecar.SidecarInjector
+	finalizer        finalizer.Finalizer
 	ingRegexHostVal  ingress.Validator
 	ingSingleHostVal ingress.Validator
 	servMonSafer     prometheus.ServiceMonitorSafer
@@ -78,6 +85,7 @@ func New(config Config) (http.Handler, error) {
 		handler:          mux,
 		marker:           config.Marker,
 		sidecar:          config.SidecarInjector,
+		finalizer:        config.Finalizer,
 		ingRegexHostVal:  config.IngressRegexHostValidator,
 		ingSingleHostVal: config.IngressSingleHostValidator,
 		servMonSafer:     config.ServiceMonitorSafer,

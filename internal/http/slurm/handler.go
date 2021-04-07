@@ -1,14 +1,13 @@
 package slurm
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"regexp"
 	"strings"
 
+	"github.com/d-hayashi/k8s-slurm-injector/internal/config_map"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/mutation/sidecar"
-	"github.com/d-hayashi/k8s-slurm-injector/internal/ssh_handler"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -35,12 +34,6 @@ type ScancelHandler struct {
 	handler handler
 }
 
-func ConfigMapNameFromObjectName(objectName string) string {
-	regString := regexp.MustCompile(`[^0-9A-Za-z_#:-]`)
-	name := regString.ReplaceAllString(objectName, "")
-	return fmt.Sprintf("k8s-slurm-injector-config-%s", name)
-}
-
 func (s SbatchHandler) parseQueryParams(r *http.Request, jobInfo *sidecar.JobInformation) error {
 	regString := regexp.MustCompile(`[^0-9A-Za-z_#:-]`)
 	regDecimal := regexp.MustCompile(`[^0-9]`)
@@ -59,9 +52,9 @@ func (s SbatchHandler) parseQueryParams(r *http.Request, jobInfo *sidecar.JobInf
 func (s SbatchHandler) prepareParams(jobInfo *sidecar.JobInformation) error {
 	// Automatically select partition
 	if jobInfo.NodeSpecificationMode != "manual" && jobInfo.Partition == "" {
-		for _, nodeInfo := range s.handler.nodeInfo {
-			if nodeInfo.node == jobInfo.Node {
-				jobInfo.Partition = nodeInfo.partition
+		for _, nodeInfo := range s.handler.slurmHandler.GetNodeInfo() {
+			if nodeInfo.Node == jobInfo.Node {
+				jobInfo.Partition = nodeInfo.Partition
 			}
 		}
 		if jobInfo.Partition == "" {
@@ -71,8 +64,8 @@ func (s SbatchHandler) prepareParams(jobInfo *sidecar.JobInformation) error {
 
 	// Check nodes
 	isNodeExists := false
-	for _, nodeInfo := range s.handler.nodeInfo {
-		if nodeInfo.node == jobInfo.Node {
+	for _, nodeInfo := range s.handler.slurmHandler.GetNodeInfo() {
+		if nodeInfo.Node == jobInfo.Node {
 			isNodeExists = true
 		}
 	}
@@ -82,8 +75,8 @@ func (s SbatchHandler) prepareParams(jobInfo *sidecar.JobInformation) error {
 
 	// Check partitions
 	isPartitionExists := false
-	for _, nodeInfo := range s.handler.nodeInfo {
-		if nodeInfo.partition == jobInfo.Partition {
+	for _, nodeInfo := range s.handler.slurmHandler.GetNodeInfo() {
+		if nodeInfo.Partition == jobInfo.Partition {
 			isPartitionExists = true
 		}
 	}
@@ -94,72 +87,27 @@ func (s SbatchHandler) prepareParams(jobInfo *sidecar.JobInformation) error {
 	return nil
 }
 
-func (s SbatchHandler) constructCommand(jobInfo *sidecar.JobInformation, commands *[]string) error {
-	jobName := jobInfo.Name
-	if jobName == "" {
-		jobName = "k8s-slurm-injector-job"
-	}
-
-	*commands = []string{
-		"sbatch",
-		"--parsable",
-		"--output=/dev/null",
-		"--error=/dev/null",
-		fmt.Sprintf("--job-name=%s", jobName),
-	}
-	if jobInfo.Partition != "" {
-		*commands = append(*commands, fmt.Sprintf("--partition=%s", jobInfo.Partition))
-	}
-	if jobInfo.Node != "" {
-		*commands = append(*commands, fmt.Sprintf("--nodelist=%s", jobInfo.Node))
-	}
-	if jobInfo.Ntasks != "" {
-		*commands = append(*commands, fmt.Sprintf("--ntasks=%s", jobInfo.Ntasks))
-	}
-	if jobInfo.Ncpus != "" {
-		*commands = append(*commands, fmt.Sprintf("--cpus-per-task=%s", jobInfo.Ncpus))
-	}
-	if jobInfo.Gres != "" {
-		*commands = append(*commands, fmt.Sprintf("--gres=%s", jobInfo.Gres))
-	}
-	if jobInfo.Time != "" {
-		*commands = append(*commands, fmt.Sprintf("--time=%s", jobInfo.Time))
-	}
-
-	return nil
-}
-
 func (s SbatchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.handler.logger.Infof("sbatch")
 
-	var out []byte
 	var err error = nil
-	var commands []string
 	jobInfo := sidecar.NewJobInformation()
 
 	// Parse request and construct commands
 	err = s.parseQueryParams(r, jobInfo)
 	if err == nil {
 		err = s.prepareParams(jobInfo)
-	}
-	if err == nil {
-		err = s.constructCommand(jobInfo, &commands)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			s.handler.logger.Errorf("failed to sbatch: %s", err.Error())
+			return
+		}
 	}
 
-	// Execute ssh commands
-	if err == nil {
-		command := ssh_handler.SSHCommand{
-			Command: strings.Join(commands, " "),
-			StdinPipe: "#!/bin/sh " +
-				"\n trap 'echo \"Killing...\"' SIGHUP SIGINT SIGQUIT SIGTERM " +
-				"\n echo \"Sleeping.  Pid=$$\" " +
-				"\n while true; do sleep 10 & wait $!; done",
-		}
-		out, err = s.handler.ssh.RunCommandCombined(command)
-	}
+	out, err := s.handler.slurmHandler.SBatch(jobInfo)
 
 	// Write to respond
-	_, _ = fmt.Fprint(w, string(out))
+	_, _ = fmt.Fprint(w, out)
 
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -169,14 +117,6 @@ func (s SbatchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (h handler) sbatch() (http.Handler, error) {
 	return SbatchHandler{h}, nil
-}
-
-func getEnv(jobid string, s *JobEnvHandler) (string, error) {
-	command := ssh_handler.SSHCommand{
-		Command: fmt.Sprintf("srun --jobid=%s env", jobid),
-	}
-	out, err := s.handler.ssh.RunCommand(command)
-	return string(out), err
 }
 
 func (s JobEnvHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -189,7 +129,7 @@ func (s JobEnvHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	out, err := getEnv(jobid, &s)
+	out, err := s.handler.slurmHandler.GetEnv(jobid)
 
 	// Write to respond
 	if err == nil {
@@ -208,7 +148,7 @@ func (s JobEnvToConfigMapHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 	jobid := r.URL.Query().Get("jobid")
 	namespace := r.URL.Query().Get("namespace")
 	objectName := r.URL.Query().Get("objectname")
-	configMapName := ConfigMapNameFromObjectName(objectName)
+	configMapName := config_map.ConfigMapNameFromObjectName(objectName)
 	s.handler.logger.Infof("envToConfigMap jobid=%s, configmap=%s, namespace=%s", jobid, configMapName, namespace)
 
 	if jobid == "" {
@@ -227,10 +167,10 @@ func (s JobEnvToConfigMapHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	out, err := getEnv(jobid, &s.JobEnvHandler)
+	out, err := s.handler.slurmHandler.GetEnv(jobid)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		s.handler.logger.Errorf("failed to get envrionment variables of job: %s", err.Error())
+		s.handler.logger.Errorf("error getting environment variables: %s", out)
 		return
 	}
 
@@ -261,7 +201,7 @@ func (s JobEnvToConfigMapHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 	}
 
 	// Get config-map if exists
-	cm, err := s.handler.clientset.CoreV1().ConfigMaps(namespace).Get(context.TODO(), configMapName, metav1.GetOptions{})
+	cm, err := s.handler.configMapHandler.GetConfigMap(namespace, configMapName)
 	if errors.IsNotFound(err) {
 		// Create a config-map
 		s.handler.logger.Infof("creating a new config-map: %s", configMapName)
@@ -278,7 +218,7 @@ func (s JobEnvToConfigMapHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 			Data:       env,
 			BinaryData: nil,
 		}
-		_, err := s.handler.clientset.CoreV1().ConfigMaps(namespace).Create(context.TODO(), cm, metav1.CreateOptions{})
+		_, err := s.handler.configMapHandler.CreateConfigMap(namespace, cm)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			s.handler.logger.Errorf("error updating configmap '%s': %s", configMapName, err.Error())
@@ -314,7 +254,7 @@ func (s JobEnvToConfigMapHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 			Data:       env,
 			BinaryData: nil,
 		}
-		_, err = s.handler.clientset.CoreV1().ConfigMaps(namespace).Update(context.TODO(), cm, metav1.UpdateOptions{})
+		_, err = s.handler.configMapHandler.UpdateConfigMap(namespace, cm)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			s.handler.logger.Errorf("error updating configmap '%s': %s", configMapName, err.Error())
@@ -337,19 +277,7 @@ func (s JobStateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var state string
-
-	command := ssh_handler.SSHCommand{
-		Command: fmt.Sprintf("scontrol show jobid %s", jobid),
-	}
-	out, err := s.handler.ssh.RunCommand(command)
-
-	// Extract JobState
-	reg := regexp.MustCompile(`(?i)JobState=[A-Z]+`)
-	matched := reg.Find(out)
-	if matched != nil {
-		state = strings.Split(string(matched), "=")[1]
-	}
+	state, err := s.handler.slurmHandler.State(jobid)
 
 	// Write to respond
 	if err == nil {
@@ -366,9 +294,6 @@ func (h handler) jobState() (http.Handler, error) {
 
 func (s ScancelHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	jobid := r.URL.Query().Get("jobid")
-	namespace := r.URL.Query().Get("namespace")
-	objectName := r.URL.Query().Get("objectname")
-	configMapName := ConfigMapNameFromObjectName(objectName)
 	s.handler.logger.Infof("scancel jobid=%s", jobid)
 
 	if jobid == "" {
@@ -376,38 +301,12 @@ func (s ScancelHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handler.logger.Errorf("jobid is not given")
 		return
 	}
-	if objectName != "" && namespace != "" {
-		// Delete the corresponding config-map if exists
-		_, err := s.handler.clientset.CoreV1().ConfigMaps(namespace).Get(context.TODO(), configMapName, metav1.GetOptions{})
-		if errors.IsNotFound(err) {
-			s.handler.logger.Warningf("config-map '%s' does not exist, skipped deleting it", configMapName)
-		} else if statusError, isStatus := err.(*errors.StatusError); isStatus {
-			s.handler.logger.Errorf("error getting configmap %v", statusError.ErrStatus.Message)
-		} else if err != nil {
-			s.handler.logger.Errorf("error getting configmap: %s", err.Error())
-		} else {
-			// The corresponding config-map exists
-			s.handler.logger.Infof("deleting config-map: %s", configMapName)
-			err = s.handler.clientset.CoreV1().ConfigMaps(namespace).Delete(context.TODO(), configMapName, metav1.DeleteOptions{})
-			if err != nil {
-				w.WriteHeader(http.StatusInternalServerError)
-				s.handler.logger.Errorf("error deleting configmap '%s': %s", configMapName, err.Error())
-			}
-		}
-	}
 
-	var out []byte
-	var err error = nil
-
-	// Execute `scancel {jobid}`
-	command := ssh_handler.SSHCommand{
-		Command: fmt.Sprintf("scancel %s", jobid),
-	}
-	out, err = s.handler.ssh.RunCommand(command)
+	out, err := s.handler.slurmHandler.SCancel(jobid)
 
 	// Write to respond
 	if err == nil {
-		_, _ = fmt.Fprint(w, string(out))
+		_, _ = fmt.Fprint(w, out)
 	} else {
 		w.WriteHeader(http.StatusInternalServerError)
 		s.handler.logger.Errorf("failed to scancel: %s", err.Error())

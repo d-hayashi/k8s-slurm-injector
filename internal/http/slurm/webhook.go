@@ -3,15 +3,10 @@ package slurm
 import (
 	"fmt"
 	"net/http"
-	"path/filepath"
-	"strings"
 
+	"github.com/d-hayashi/k8s-slurm-injector/internal/config_map"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/log"
-	"github.com/d-hayashi/k8s-slurm-injector/internal/ssh_handler"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/client-go/util/homedir"
+	"github.com/d-hayashi/k8s-slurm-injector/internal/slurm_handler"
 )
 
 // Config is the handler configuration.
@@ -33,60 +28,26 @@ type Handler interface {
 }
 
 type handler struct {
-	handler   http.Handler
-	ssh       ssh_handler.SSHHandler
-	clientset *kubernetes.Clientset
-	nodeInfo  []nodeInfo
-	logger    log.Logger
-}
-
-type nodeInfo struct {
-	node      string
-	partition string
+	handler          http.Handler
+	slurmHandler     slurm_handler.SlurmHandler
+	configMapHandler config_map.ConfigMapHandler
+	logger           log.Logger
 }
 
 // New returns a new webhook handler.
-func New(config Config, sshHandler ssh_handler.SSHHandler) (http.Handler, error) {
+func New(config Config, configMapHandler config_map.ConfigMapHandler, slurmHandler slurm_handler.SlurmHandler) (http.Handler, error) {
 	err := config.defaults()
 	if err != nil {
 		return nil, fmt.Errorf("handler configuration is not valid: %w", err)
 	}
 
-	// Initialize kubernetes client-set
-	var cfg *rest.Config
-
-	// creates the in-cluster cfg
-	cfg, err = rest.InClusterConfig()
-	if err != nil {
-		if home := homedir.HomeDir(); home != "" {
-			kubecfg := filepath.Join(home, ".kube", "config")
-			cfg, err = clientcmd.BuildConfigFromFlags("", kubecfg)
-			if err != nil {
-				panic(err.Error())
-			}
-		} else {
-			panic(err.Error())
-		}
-	}
-	// creates the clientset
-	clientset, err := kubernetes.NewForConfig(cfg)
-	if err != nil {
-		panic(err.Error())
-	}
-
 	mux := http.NewServeMux()
 
 	h := handler{
-		handler:   mux,
-		ssh:       sshHandler,
-		clientset: clientset,
-		logger:    config.Logger.WithKV(log.KV{"service": "slurm-handler"}),
-	}
-
-	// Get node information
-	err = h.fetchSlurmNodeInfo()
-	if err != nil {
-		return nil, fmt.Errorf("could not fetch information of slurm-nodes: %w", err)
+		handler:          mux,
+		slurmHandler:     slurmHandler,
+		configMapHandler: configMapHandler,
+		logger:           config.Logger.WithKV(log.KV{"service": "http-slurm"}),
 	}
 
 	// Register all the routes with our router.
@@ -96,43 +57,6 @@ func New(config Config, sshHandler ssh_handler.SSHHandler) (http.Handler, error)
 	}
 
 	return h, nil
-}
-
-func (h *handler) fetchSlurmNodeInfo() error {
-	command := ssh_handler.SSHCommand{
-		Command: "sinfo --Node | tail -n +2 | awk '{print $1,$3}'",
-	}
-
-	var _nodeInfo []nodeInfo
-	out, err := h.ssh.RunCommand(command)
-	candidates := strings.Split(string(out), "\n")
-	for _, candidate := range candidates {
-		info := strings.Split(candidate, " ")
-		if len(info) != 2 {
-			h.logger.Warningf("cannot deserialize string: %s, skipped", candidate)
-			continue
-		}
-		node := info[0]
-		partition := info[1]
-		if node == "" {
-			h.logger.Warningf("node is empty: %s, skipped", candidate)
-			continue
-		}
-		if partition == "" {
-			h.logger.Warningf("partition is empty: %s, skipped", candidate)
-			continue
-		}
-		partition = strings.TrimSuffix(partition, "*")
-
-		_nodeInfo = append(_nodeInfo, nodeInfo{node: node, partition: partition})
-		h.logger.Debugf("registered a node: node=%s, partition=%s", node, partition)
-	}
-
-	if err == nil {
-		h.nodeInfo = _nodeInfo
-	}
-
-	return err
 }
 
 func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
