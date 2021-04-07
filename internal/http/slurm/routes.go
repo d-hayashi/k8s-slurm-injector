@@ -18,6 +18,12 @@ func (h handler) routes(router *http.ServeMux) error {
 	}
 	router.Handle("/slurm/env", jobEnv)
 
+	jobEnvToConfigMap, err := h.jobEnvToConfigMap()
+	if err != nil {
+		return err
+	}
+	router.Handle("/slurm/envtoconfigmap", jobEnvToConfigMap)
+
 	jobState, err := h.jobState()
 	if err != nil {
 		return err

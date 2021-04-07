@@ -2,7 +2,12 @@ package slurm
 
 import (
 	"fmt"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/util/homedir"
 	"net/http"
+	"path/filepath"
 	"strings"
 
 	"github.com/d-hayashi/k8s-slurm-injector/internal/log"
@@ -28,10 +33,11 @@ type Handler interface {
 }
 
 type handler struct {
-	handler  http.Handler
-	ssh      ssh_handler.SSHHandler
-	nodeInfo []nodeInfo
-	logger   log.Logger
+	handler   http.Handler
+	ssh       ssh_handler.SSHHandler
+	clientset *kubernetes.Clientset
+	nodeInfo  []nodeInfo
+	logger    log.Logger
 }
 
 type nodeInfo struct {
@@ -46,12 +52,35 @@ func New(config Config, sshHandler ssh_handler.SSHHandler) (http.Handler, error)
 		return nil, fmt.Errorf("handler configuration is not valid: %w", err)
 	}
 
+	// Initialize kubernetes client-set
+	var cfg *rest.Config
+
+	// creates the in-cluster cfg
+	cfg, err = rest.InClusterConfig()
+	if err != nil {
+		if home := homedir.HomeDir(); home != "" {
+			kubecfg := filepath.Join(home, ".kube", "config")
+			cfg, err = clientcmd.BuildConfigFromFlags("", kubecfg)
+			if err != nil {
+				panic(err.Error())
+			}
+		} else {
+			panic(err.Error())
+		}
+	}
+	// creates the clientset
+	clientset, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		panic(err.Error())
+	}
+
 	mux := http.NewServeMux()
 
 	h := handler{
-		handler: mux,
-		ssh:     sshHandler,
-		logger:  config.Logger.WithKV(log.KV{"service": "slurm-handler"}),
+		handler:   mux,
+		ssh:       sshHandler,
+		clientset: clientset,
+		logger:    config.Logger.WithKV(log.KV{"service": "slurm-handler"}),
 	}
 
 	// Get node information
