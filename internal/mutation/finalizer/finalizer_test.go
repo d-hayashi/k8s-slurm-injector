@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/d-hayashi/k8s-slurm-injector/internal/config_map"
+	"github.com/d-hayashi/k8s-slurm-injector/internal/slurm_handler"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	batchv1 "k8s.io/api/batch/v1"
@@ -12,7 +14,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/d-hayashi/k8s-slurm-injector/internal/mutation/finalizer"
-	"github.com/d-hayashi/k8s-slurm-injector/internal/ssh_handler"
 )
 
 func TestFinalizer_Finalize(t *testing.T) {
@@ -23,7 +24,8 @@ func TestFinalizer_Finalize(t *testing.T) {
 		"Having a pod, the labels should be mutated.": {
 			obj: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: "test",
+					Name:      "test",
+					Namespace: "default",
 					Labels: map[string]string{
 						"test1":                        "value1",
 						"test2":                        "value2",
@@ -32,8 +34,8 @@ func TestFinalizer_Finalize(t *testing.T) {
 						"k8s-slurm-injector/node":                    "node1",
 					},
 					Annotations: map[string]string{
-						"k8s-slurm-injector/namespace":               "",
-						"k8s-slurm-injector/objectname":              "pod-test",
+						"k8s-slurm-injector/namespace":               "default",
+						"k8s-slurm-injector/object-name":             "pod-test",
 						"k8s-slurm-injector/status":                  "injected",
 						"k8s-slurm-injector/node-specification-mode": "manual",
 						"k8s-slurm-injector/partition":               "",
@@ -49,7 +51,8 @@ func TestFinalizer_Finalize(t *testing.T) {
 			},
 			expObj: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: "test",
+					Name:      "test",
+					Namespace: "default",
 					Labels: map[string]string{
 						"test1":                        "value1",
 						"test2":                        "value2",
@@ -58,8 +61,8 @@ func TestFinalizer_Finalize(t *testing.T) {
 						"k8s-slurm-injector/node":                    "node1",
 					},
 					Annotations: map[string]string{
-						"k8s-slurm-injector/namespace":               "",
-						"k8s-slurm-injector/objectname":              "pod-test",
+						"k8s-slurm-injector/namespace":               "default",
+						"k8s-slurm-injector/object-name":             "pod-test",
 						"k8s-slurm-injector/status":                  "injected",
 						"k8s-slurm-injector/node-specification-mode": "manual",
 						"k8s-slurm-injector/partition":               "",
@@ -78,7 +81,8 @@ func TestFinalizer_Finalize(t *testing.T) {
 		"Having a pod with labels without injection, the labels should not be mutated.": {
 			obj: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: "test",
+					Name:      "test",
+					Namespace: "default",
 					Labels: map[string]string{
 						"test1":                        "value1",
 						"test2":                        "value2",
@@ -90,7 +94,8 @@ func TestFinalizer_Finalize(t *testing.T) {
 			},
 			expObj: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: "test",
+					Name:      "test",
+					Namespace: "default",
 					Labels: map[string]string{
 						"test1":                        "value1",
 						"test2":                        "value2",
@@ -134,10 +139,11 @@ func TestFinalizer_Finalize(t *testing.T) {
 			assert := assert.New(t)
 			require := require.New(t)
 
-			sshHandler, _ := ssh_handler.Dummy()
-			handler, _ := finalizer.NewFinalizer(sshHandler)
+			dummyConfigMapHandler, _ := config_map.NewDummyConfigMapHandler()
+			dummySlurmHandler, _ := slurm_handler.NewDummySlurmHandler()
+			handler, _ := finalizer.NewFinalizer(dummyConfigMapHandler, dummySlurmHandler)
 
-			err := handler.Finalize(context.TODO(), test.obj)
+			_, err := handler.Finalize(context.TODO(), test.obj)
 			require.NoError(err)
 
 			switch test.obj.(type) {

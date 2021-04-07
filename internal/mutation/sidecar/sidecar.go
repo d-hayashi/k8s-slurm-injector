@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/d-hayashi/k8s-slurm-injector/internal/config_map"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/ssh_handler"
 	batchv1 "k8s.io/api/batch/v1"
 	batchv1beta1 "k8s.io/api/batch/v1beta1"
@@ -16,7 +17,7 @@ import (
 
 // SidecarInjector knows how to mark Kubernetes resources.
 type SidecarInjector interface {
-	Inject(ctx context.Context, obj metav1.Object) error
+	Inject(ctx context.Context, obj metav1.Object) (string, error)
 	SetNodes(nodes []string)
 	SetPartitions(partitions []string)
 }
@@ -78,7 +79,7 @@ func (s *sidecarinjector) SetPartitions(partitions []string) {
 	s.Partitions = partitions
 }
 
-func (s sidecarinjector) isInjectionEnabled(obj metav1.Object) bool {
+func IsInjectionEnabled(obj metav1.Object) bool {
 	var podSpec corev1.PodSpec
 	isInjection := false
 
@@ -354,7 +355,7 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 	stateURL := s.constructURL(slurmWebhookURL, jobInfo, "state")
 	envURL := s.constructURL(slurmWebhookURL, jobInfo, "envtoconfigmap")
 	scancelURL := s.constructURL(slurmWebhookURL, jobInfo, "scancel")
-	configMapName := fmt.Sprintf("k8s-slurm-injector-config-%s", jobInfo.ObjectName)
+	configMapName := config_map.ConfigMapNameFromObjectName(jobInfo.ObjectName)
 
 	// Enable shareProcessNamespace
 	shareProcessNamespace := true
@@ -547,7 +548,7 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 	}
 	annotations["k8s-slurm-injector/status"] = "injected"
 	annotations["k8s-slurm-injector/namespace"] = jobInfo.Namespace
-	annotations["k8s-slurm-injector/objectname"] = jobInfo.ObjectName
+	annotations["k8s-slurm-injector/object-name"] = jobInfo.ObjectName
 	annotations["k8s-slurm-injector/node-specification-mode"] = jobInfo.NodeSpecificationMode
 	annotations["k8s-slurm-injector/partition"] = jobInfo.Partition
 	annotations["k8s-slurm-injector/node"] = jobInfo.Node
@@ -598,7 +599,7 @@ func (s sidecarinjector) fetchSlurmPartitions() ([]string, error) {
 	return partitions, err
 }
 
-func (s sidecarinjector) Inject(_ context.Context, obj metav1.Object) error {
+func (s sidecarinjector) Inject(_ context.Context, obj metav1.Object) (string, error) {
 	var err error
 
 	// Filter object
@@ -610,27 +611,27 @@ func (s sidecarinjector) Inject(_ context.Context, obj metav1.Object) error {
 	case *batchv1beta1.CronJob:
 		// pass
 	default:
-		return nil
+		return "", nil
 	}
 
 	// Check if injection is enabled
-	if !s.isInjectionEnabled(obj) {
-		return nil
+	if !IsInjectionEnabled(obj) {
+		return "", nil
 	}
 
 	// Validate object
 	err = s.validate(obj)
 	if err != nil {
-		return fmt.Errorf("failed to mutate object: %s", err.Error())
+		return "", fmt.Errorf("failed to mutate object: %s", err.Error())
 	}
 
 	// Mutate object
 	err = s.mutateObject(obj)
 	if err != nil {
-		return fmt.Errorf("failed to mutate object: %s", err.Error())
+		return "", fmt.Errorf("failed to mutate object: %s", err.Error())
 	}
 
-	return nil
+	return "Sidecar for SLURM injected", nil
 }
 
 // DummyMarker is a marker that doesn't do anything.
@@ -638,6 +639,8 @@ var DummySidecarInjector SidecarInjector = dummySidecarInjector(0)
 
 type dummySidecarInjector int
 
-func (dummySidecarInjector) Inject(_ context.Context, _ metav1.Object) error { return nil }
-func (dummySidecarInjector) SetNodes(nodes []string)                         {}
-func (dummySidecarInjector) SetPartitions(partitions []string)               {}
+func (dummySidecarInjector) Inject(_ context.Context, _ metav1.Object) (string, error) {
+	return "", nil
+}
+func (dummySidecarInjector) SetNodes(nodes []string)           {}
+func (dummySidecarInjector) SetPartitions(partitions []string) {}

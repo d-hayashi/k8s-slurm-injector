@@ -48,7 +48,7 @@ func TestSidecarinjector_Inject(t *testing.T) {
 					},
 					Annotations: map[string]string{
 						"k8s-slurm-injector/namespace":               "",
-						"k8s-slurm-injector/objectname":              "pod-test",
+						"k8s-slurm-injector/object-name":             "pod-test",
 						"k8s-slurm-injector/status":                  "injected",
 						"k8s-slurm-injector/node-specification-mode": "manual",
 						"k8s-slurm-injector/partition":               "",
@@ -129,7 +129,7 @@ func TestSidecarinjector_Inject(t *testing.T) {
 					},
 					Annotations: map[string]string{
 						"k8s-slurm-injector/namespace":               "",
-						"k8s-slurm-injector/objectname":              "job-test",
+						"k8s-slurm-injector/object-name":             "job-test",
 						"k8s-slurm-injector/status":                  "injected",
 						"k8s-slurm-injector/node-specification-mode": "manual",
 						"k8s-slurm-injector/partition":               "",
@@ -182,7 +182,7 @@ func TestSidecarinjector_Inject(t *testing.T) {
 					},
 					Annotations: map[string]string{
 						"k8s-slurm-injector/namespace":               "",
-						"k8s-slurm-injector/objectname":              "pod-test",
+						"k8s-slurm-injector/object-name":             "pod-test",
 						"k8s-slurm-injector/status":                  "injected",
 						"k8s-slurm-injector/node-specification-mode": "auto",
 						"k8s-slurm-injector/partition":               "",
@@ -246,7 +246,7 @@ func TestSidecarinjector_Inject(t *testing.T) {
 					Name: "test",
 					Annotations: map[string]string{
 						"k8s-slurm-injector/namespace":               "",
-						"k8s-slurm-injector/objectname":              "pod-test",
+						"k8s-slurm-injector/object-name":             "pod-test",
 						"k8s-slurm-injector/status":                  "injected",
 						"k8s-slurm-injector/node-specification-mode": "",
 						"k8s-slurm-injector/partition":               "",
@@ -272,7 +272,7 @@ func TestSidecarinjector_Inject(t *testing.T) {
 			injector, _ := sidecar.NewSidecarInjector(sshHandler)
 			injector.SetNodes([]string{"node1"})
 
-			err := injector.Inject(context.TODO(), test.obj)
+			_, err := injector.Inject(context.TODO(), test.obj)
 			require.NoError(err)
 
 			switch test.obj.(type) {

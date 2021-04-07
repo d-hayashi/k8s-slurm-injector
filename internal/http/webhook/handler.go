@@ -34,14 +34,19 @@ func (l kubewebhookLogger) WithCtx(ctx context.Context) kwhlog.Logger {
 // injectSidecar sets up the webhook handler for injecting sidecars for slurm using Kubewebhook library.
 func (h handler) injectSidecar() (http.Handler, error) {
 	mt := kwhmutating.MutatorFunc(func(ctx context.Context, ar *kwhmodel.AdmissionReview, obj metav1.Object) (*kwhmutating.MutatorResult, error) {
-		err := h.sidecar.Inject(ctx, obj)
+		msg, err := h.sidecar.Inject(ctx, obj)
 		if err != nil {
 			return nil, fmt.Errorf("could not inject sidecars with the resource: %w", err)
 		}
 
+		var warnings []string
+		if msg != "" {
+			warnings = []string{msg}
+		}
+
 		return &kwhmutating.MutatorResult{
 			MutatedObject: obj,
-			Warnings:      []string{"Sidecars injected with the resource"},
+			Warnings:      warnings,
 		}, nil
 	})
 
@@ -68,14 +73,19 @@ func (h handler) injectSidecar() (http.Handler, error) {
 // initFinalizer sets up the webhook handler for finalizing slurm jobs.
 func (h handler) initFinalizer() (http.Handler, error) {
 	mt := kwhmutating.MutatorFunc(func(ctx context.Context, ar *kwhmodel.AdmissionReview, obj metav1.Object) (*kwhmutating.MutatorResult, error) {
-		err := h.finalizer.Finalize(ctx, obj)
+		msg, err := h.finalizer.Finalize(ctx, obj)
 		if err != nil {
 			return nil, fmt.Errorf("could not finalize the resource: %w", err)
 		}
 
+		var warnings []string
+		if msg != "" {
+			warnings = []string{msg}
+		}
+
 		return &kwhmutating.MutatorResult{
 			MutatedObject: obj,
-			Warnings:      []string{"Finalized the resource"},
+			Warnings:      warnings,
 		}, nil
 	})
 

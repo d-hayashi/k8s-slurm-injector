@@ -15,13 +15,16 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 
+	"github.com/d-hayashi/k8s-slurm-injector/internal/config_map"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/http/slurm"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/http/webhook"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/log"
 	internalmetricsprometheus "github.com/d-hayashi/k8s-slurm-injector/internal/metrics/prometheus"
+	"github.com/d-hayashi/k8s-slurm-injector/internal/mutation/finalizer"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/mutation/mark"
 	internalmutationprometheus "github.com/d-hayashi/k8s-slurm-injector/internal/mutation/prometheus"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/mutation/sidecar"
+	"github.com/d-hayashi/k8s-slurm-injector/internal/slurm_handler"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/ssh_handler"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/validation/ingress"
 )
@@ -56,6 +59,24 @@ func runApp() error {
 	sshHandler, err := ssh_handler.New(cfg.SSHDestination, cfg.SSHPort)
 	if err != nil {
 		return fmt.Errorf("failed to esablish SSH connection: %s", err)
+	}
+
+	// Initialize config-map-handler
+	configMapHandler, err := config_map.NewConfigMapHandler()
+	if err != nil {
+		return fmt.Errorf("failed to initialize config-map-handler: %s", err)
+	}
+
+	// Initialize slurm-handler
+	slurmHandler, err := slurm_handler.NewSlurmHandler(sshHandler)
+	if err != nil {
+		return fmt.Errorf("failed to initialize slurm-handler: %s", err)
+	}
+
+	// Initialize finalizer
+	_finalizer, err := finalizer.NewFinalizer(configMapHandler, slurmHandler)
+	if err != nil {
+		return fmt.Errorf("failed to initialize finalizer: %s", err)
 	}
 
 	sidecarInjector, err := sidecar.NewSidecarInjector(sshHandler)
@@ -175,6 +196,7 @@ func runApp() error {
 		wh, err := webhook.New(webhook.Config{
 			Marker:                     marker,
 			SidecarInjector:            sidecarInjector,
+			Finalizer:                  _finalizer,
 			IngressRegexHostValidator:  ingressHostValidator,
 			IngressSingleHostValidator: ingressSingleHostValidator,
 			ServiceMonitorSafer:        serviceMonitorSafer,
@@ -222,7 +244,7 @@ func runApp() error {
 		// Slurm handler
 		wh, err := slurm.New(slurm.Config{
 			Logger: logger,
-		}, sshHandler)
+		}, configMapHandler, slurmHandler)
 		if err != nil {
 			return fmt.Errorf("could not create webhooks handler: %w", err)
 		}
