@@ -12,6 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/d-hayashi/k8s-slurm-injector/internal/config_map"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/mutation/sidecar"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/ssh_handler"
 )
@@ -269,7 +270,8 @@ func TestSidecarinjector_Inject(t *testing.T) {
 			require := require.New(t)
 
 			sshHandler, _ := ssh_handler.Dummy()
-			injector, _ := sidecar.NewSidecarInjector(sshHandler)
+			configMapHandler, _ := config_map.NewDummyConfigMapHandler()
+			injector, _ := sidecar.NewSidecarInjector(sshHandler, configMapHandler)
 			injector.SetNodes([]string{"node1"})
 
 			_, err := injector.Inject(context.TODO(), test.obj)

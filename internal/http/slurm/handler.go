@@ -138,6 +138,7 @@ func (s SbatchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				s.handler.logger.Errorf("error updating configmap '%s': %s", configMapName, err.Error())
 				return
 			}
+			s.handler.logger.Infof("created config-map '%s'", configMapName)
 		} else if statusError, isStatus := err.(*errors.StatusError); isStatus {
 			w.WriteHeader(http.StatusInternalServerError)
 			s.handler.logger.Errorf("error getting configmap %v", statusError.ErrStatus.Message)
@@ -155,6 +156,7 @@ func (s SbatchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				s.handler.logger.Errorf("error updating configmap '%s': %s", configMapName, err.Error())
 				return
 			}
+			s.handler.logger.Infof("updated config-map '%s'", configMapName)
 		}
 	} else {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -320,7 +322,7 @@ func (h handler) jobEnvToConfigMap() (http.Handler, error) {
 
 func (s JobStateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	jobid := r.URL.Query().Get("jobid")
-	s.handler.logger.Infof("state jobid=%s", jobid)
+	s.handler.logger.Debugf("state jobid=%s", jobid)
 
 	if jobid == "" {
 		w.WriteHeader(http.StatusBadRequest)

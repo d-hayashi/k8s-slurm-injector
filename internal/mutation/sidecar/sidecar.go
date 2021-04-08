@@ -12,6 +12,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	batchv1beta1 "k8s.io/api/batch/v1beta1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -23,9 +24,9 @@ type SidecarInjector interface {
 }
 
 // NewSidecarInjector returns a new sidecar-injector that will inject sidecars.
-func NewSidecarInjector(sshHandler ssh_handler.SSHHandler) (SidecarInjector, error) {
+func NewSidecarInjector(sshHandler ssh_handler.SSHHandler, configMapHandler config_map.ConfigMapHandler) (SidecarInjector, error) {
 	var err error
-	injector := sidecarinjector{ssh: sshHandler}
+	injector := sidecarinjector{ssh: sshHandler, configMapHandler: configMapHandler}
 	injector.Nodes, err = injector.fetchSlurmNodes()
 	if err == nil {
 		injector.Partitions, err = injector.fetchSlurmPartitions()
@@ -35,9 +36,10 @@ func NewSidecarInjector(sshHandler ssh_handler.SSHHandler) (SidecarInjector, err
 }
 
 type sidecarinjector struct {
-	ssh        ssh_handler.SSHHandler
-	Nodes      []string
-	Partitions []string
+	ssh              ssh_handler.SSHHandler
+	configMapHandler config_map.ConfigMapHandler
+	Nodes            []string
+	Partitions       []string
 }
 
 type JobInformation struct {
@@ -602,6 +604,48 @@ func (s sidecarinjector) fetchSlurmPartitions() ([]string, error) {
 	return partitions, err
 }
 
+func (s sidecarinjector) createConfigMap(obj metav1.Object) error {
+	namespace := obj.GetNamespace()
+	annotations := obj.GetAnnotations()
+	objectName, exist := annotations["k8s-slurm-injector/object-name"]
+	if !exist {
+		return fmt.Errorf("annotation 'k8s-slurm-injector/object-name' not found")
+	}
+	configMapName := config_map.ConfigMapNameFromObjectName(objectName)
+
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      configMapName,
+			Namespace: namespace,
+			Labels: map[string]string{
+				"app": "k8s-slurm-injector",
+			},
+			Annotations: map[string]string{
+				"k8s-slurm-injector/last-applied-command": "inject",
+			},
+		},
+	}
+
+	_, err := s.configMapHandler.GetConfigMap(namespace, configMapName, nil)
+	if errors.IsNotFound(err) {
+		// Create a config-map
+		_, err := s.configMapHandler.CreateConfigMap(namespace, cm, nil)
+		if err != nil {
+			return err
+		}
+	} else if err != nil {
+		return err
+	} else {
+		// Update config-map
+		_, err = s.configMapHandler.UpdateConfigMap(namespace, cm, nil)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (s sidecarinjector) Inject(_ context.Context, obj metav1.Object) (string, error) {
 	var err error
 
@@ -632,6 +676,12 @@ func (s sidecarinjector) Inject(_ context.Context, obj metav1.Object) (string, e
 	err = s.mutateObject(obj)
 	if err != nil {
 		return "", fmt.Errorf("failed to mutate object: %s", err.Error())
+	}
+
+	// Create config-map
+	err = s.createConfigMap(obj)
+	if err != nil {
+		return "", fmt.Errorf("failed to create config-map: %s", err.Error())
 	}
 
 	return "Sidecar for SLURM injected", nil

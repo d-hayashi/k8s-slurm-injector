@@ -80,7 +80,7 @@ func runApp() error {
 		return fmt.Errorf("failed to initialize finalizer: %s", err)
 	}
 
-	sidecarInjector, err := sidecar.NewSidecarInjector(sshHandler)
+	sidecarInjector, err := sidecar.NewSidecarInjector(sshHandler, configMapHandler)
 	if err != nil {
 		return fmt.Errorf("failed to initialize sidecar injector: %w", err)
 	}
