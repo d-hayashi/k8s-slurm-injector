@@ -37,6 +37,8 @@ type ScancelHandler struct {
 func (s SbatchHandler) parseQueryParams(r *http.Request, jobInfo *sidecar.JobInformation) error {
 	regString := regexp.MustCompile(`[^0-9A-Za-z_#:-]`)
 	regDecimal := regexp.MustCompile(`[^0-9]`)
+	jobInfo.Namespace = regString.ReplaceAllString(r.URL.Query().Get("namespace"), "")
+	jobInfo.ObjectName = regString.ReplaceAllString(r.URL.Query().Get("objectname"), "")
 	jobInfo.NodeSpecificationMode = regString.ReplaceAllString(r.URL.Query().Get("nodespecificationmode"), "")
 	jobInfo.Partition = regString.ReplaceAllString(r.URL.Query().Get("partition"), "")
 	jobInfo.Node = regString.ReplaceAllString(r.URL.Query().Get("node"), "")
@@ -109,7 +111,52 @@ func (s SbatchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Write to respond
 	_, _ = fmt.Fprint(w, out)
 
-	if err != nil {
+	if err == nil {
+		// Create or update config-map
+		namespace := jobInfo.Namespace
+		configMapName := config_map.ConfigMapNameFromObjectName(jobInfo.ObjectName)
+		cm := &v1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      configMapName,
+				Namespace: namespace,
+				Labels: map[string]string{
+					"app": "k8s-slurm-injector",
+				},
+				Annotations: map[string]string{
+					"k8s-slurm-injector/last-applied-command": "sbatch",
+					"k8s-slurm-injector/jobid":                out,
+				},
+			},
+		}
+
+		_, err := s.handler.configMapHandler.GetConfigMap(namespace, configMapName, nil)
+		if errors.IsNotFound(err) {
+			// Create a config-map
+			_, err := s.handler.configMapHandler.CreateConfigMap(namespace, cm, nil)
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				s.handler.logger.Errorf("error updating configmap '%s': %s", configMapName, err.Error())
+				return
+			}
+		} else if statusError, isStatus := err.(*errors.StatusError); isStatus {
+			w.WriteHeader(http.StatusInternalServerError)
+			s.handler.logger.Errorf("error getting configmap %v", statusError.ErrStatus.Message)
+			return
+		} else if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			s.handler.logger.Errorf("error getting configmap: %s", err.Error())
+			return
+		} else {
+			// Update config-map
+			s.handler.logger.Infof("updating config-map: %s", configMapName)
+			_, err = s.handler.configMapHandler.UpdateConfigMap(namespace, cm, nil)
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				s.handler.logger.Errorf("error updating configmap '%s': %s", configMapName, err.Error())
+				return
+			}
+		}
+	} else {
 		w.WriteHeader(http.StatusInternalServerError)
 		s.handler.logger.Errorf("failed to sbatch: %s (%s)", err.Error(), out)
 	}
@@ -201,7 +248,7 @@ func (s JobEnvToConfigMapHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 	}
 
 	// Get config-map if exists
-	cm, err := s.handler.configMapHandler.GetConfigMap(namespace, configMapName)
+	cm, err := s.handler.configMapHandler.GetConfigMap(namespace, configMapName, nil)
 	if errors.IsNotFound(err) {
 		// Create a config-map
 		s.handler.logger.Infof("creating a new config-map: %s", configMapName)
@@ -209,7 +256,9 @@ func (s JobEnvToConfigMapHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      configMapName,
 				Namespace: namespace,
-				Labels:    nil,
+				Labels: map[string]string{
+					"app": "k8s-slurm-injector",
+				},
 				Annotations: map[string]string{
 					"k8s-slurm-injector/jobid": jobid,
 				},
@@ -218,7 +267,7 @@ func (s JobEnvToConfigMapHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 			Data:       env,
 			BinaryData: nil,
 		}
-		_, err := s.handler.configMapHandler.CreateConfigMap(namespace, cm)
+		_, err := s.handler.configMapHandler.CreateConfigMap(namespace, cm, nil)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			s.handler.logger.Errorf("error updating configmap '%s': %s", configMapName, err.Error())
@@ -244,7 +293,9 @@ func (s JobEnvToConfigMapHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      configMapName,
 				Namespace: namespace,
-				Labels:    nil,
+				Labels: map[string]string{
+					"app": "k8s-slurm-injector",
+				},
 				Annotations: map[string]string{
 					"k8s-slurm-injector/jobid":                      jobid,
 					"k8s-slurm-injector/last-applied-configuration": string(bytes),
@@ -254,7 +305,7 @@ func (s JobEnvToConfigMapHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 			Data:       env,
 			BinaryData: nil,
 		}
-		_, err = s.handler.configMapHandler.UpdateConfigMap(namespace, cm)
+		_, err = s.handler.configMapHandler.UpdateConfigMap(namespace, cm, nil)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			s.handler.logger.Errorf("error updating configmap '%s': %s", configMapName, err.Error())

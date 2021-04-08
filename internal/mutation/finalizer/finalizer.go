@@ -70,7 +70,7 @@ func (f finalizer) Finalize(_ context.Context, obj metav1.Object) (string, error
 
 	if objectName != "" && namespace != "" {
 		// Delete the corresponding config-map if exists
-		configMap, err := f.configMapHandler.GetConfigMap(namespace, configMapName)
+		configMap, err := f.configMapHandler.GetConfigMap(namespace, configMapName, nil)
 		if errors.IsNotFound(err) {
 			fmt.Printf("config-map '%s' does not exist, skipped deleting it", configMapName)
 		} else if statusError, isStatus := err.(*errors.StatusError); isStatus {
@@ -90,7 +90,7 @@ func (f finalizer) Finalize(_ context.Context, obj metav1.Object) (string, error
 			}
 
 			// Delete the config-map
-			err = f.configMapHandler.DeleteConfigMap(namespace, configMapName)
+			err = f.configMapHandler.DeleteConfigMap(namespace, configMapName, nil)
 			if err != nil {
 				// TODO: Retry
 				_ = fmt.Errorf("%s", err.Error())
