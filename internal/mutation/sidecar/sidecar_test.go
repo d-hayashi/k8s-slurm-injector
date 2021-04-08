@@ -2,6 +2,7 @@ package sidecar_test
 
 import (
 	"context"
+	"github.com/d-hayashi/k8s-slurm-injector/internal/config_map"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -269,7 +270,8 @@ func TestSidecarinjector_Inject(t *testing.T) {
 			require := require.New(t)
 
 			sshHandler, _ := ssh_handler.Dummy()
-			injector, _ := sidecar.NewSidecarInjector(sshHandler)
+			configMapHandler, _ := config_map.NewDummyConfigMapHandler()
+			injector, _ := sidecar.NewSidecarInjector(sshHandler, configMapHandler)
 			injector.SetNodes([]string{"node1"})
 
 			_, err := injector.Inject(context.TODO(), test.obj)
