@@ -14,6 +14,7 @@ type SlurmHandler interface {
 	GetEnv(jobid string) (string, error)
 	State(jobid string) (string, error)
 	SCancel(jobid string) (string, error)
+	List() ([]string, error)
 	GetNodeInfo() []NodeInfo
 }
 
@@ -180,6 +181,25 @@ func (h handler) SCancel(jobid string) (string, error) {
 	return string(out), err
 }
 
+func (h handler) List() ([]string, error) {
+	var jobIds []string
+
+	command := ssh_handler.SSHCommand{
+		Command: "squeue -u $USER -o \"%i\" --noheader",
+	}
+	out, err := h.ssh.RunCommand(command)
+
+	if err == nil {
+		for _, jobId := range strings.Split(string(out), "\n") {
+			if jobId != "" {
+				jobIds = append(jobIds, jobId)
+			}
+		}
+	}
+
+	return jobIds, err
+}
+
 func (h handler) GetNodeInfo() []NodeInfo {
 	return h.nodeInfo
 }
@@ -210,6 +230,10 @@ func (d dummyHandler) SCancel(jobid string) (string, error) {
 	}
 
 	return "", nil
+}
+
+func (h dummyHandler) List() ([]string, error) {
+	return []string{}, nil
 }
 
 func (d dummyHandler) GetNodeInfo() []NodeInfo {

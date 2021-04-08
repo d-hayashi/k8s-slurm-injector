@@ -27,6 +27,7 @@ import (
 	"github.com/d-hayashi/k8s-slurm-injector/internal/slurm_handler"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/ssh_handler"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/validation/ingress"
+	"github.com/d-hayashi/k8s-slurm-injector/internal/watcher"
 )
 
 var (
@@ -274,6 +275,30 @@ func runApp() error {
 				if err != nil {
 					logger.Errorf("error while closing SSH connections: %s", err)
 				}
+			},
+		)
+	}
+
+	// Watcher.
+	{
+		logger := logger.WithKV(log.KV{"service": "watcher"})
+
+		// Watcher
+		w, err := watcher.NewWatcher(configMapHandler, slurmHandler, logger)
+		if err != nil {
+			return fmt.Errorf("could not create watcher: %w", err)
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+
+		g.Add(
+			func() error {
+				logger.Infof("starting watcher...")
+				return w.Watch(ctx)
+			},
+			func(_ error) {
+				logger.Infof("stopping watcher")
+				cancel()
 			},
 		)
 	}
