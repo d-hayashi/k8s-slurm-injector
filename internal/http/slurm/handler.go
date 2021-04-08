@@ -119,7 +119,7 @@ func (s SbatchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      configMapName,
 				Namespace: namespace,
-				Labels:    map[string]string{
+				Labels: map[string]string{
 					"app": "k8s-slurm-injector",
 				},
 				Annotations: map[string]string{
@@ -256,7 +256,7 @@ func (s JobEnvToConfigMapHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      configMapName,
 				Namespace: namespace,
-				Labels:    map[string]string{
+				Labels: map[string]string{
 					"app": "k8s-slurm-injector",
 				},
 				Annotations: map[string]string{
@@ -293,7 +293,7 @@ func (s JobEnvToConfigMapHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      configMapName,
 				Namespace: namespace,
-				Labels:    map[string]string{
+				Labels: map[string]string{
 					"app": "k8s-slurm-injector",
 				},
 				Annotations: map[string]string{
