@@ -67,7 +67,7 @@ func NewJobInformation() *JobInformation {
 		Ncpus:                 "1",
 		GpuLimit:              false,
 		Gres:                  "",
-		Time:                  "1440",
+		Time:                  "",
 		Name:                  "",
 	}
 	return &jobInfo
@@ -181,7 +181,7 @@ func (s sidecarinjector) getJobInformation(obj metav1.Object, jobInfo *JobInform
 	ntasks := int64(1)
 	ncpus := int64(0)
 	ngpus := int64(0)
-	time := int64(1440)
+	time := int64(0)
 	name := ""
 
 	switch v := obj.(type) {
@@ -280,8 +280,13 @@ func (s sidecarinjector) getJobInformation(obj metav1.Object, jobInfo *JobInform
 			}
 		}
 	}
-	jobInfo.Ntasks = fmt.Sprintf("%d", ntasks)
-	jobInfo.Time = fmt.Sprintf("%d", time)
+
+	if ntasks > 0 {
+		jobInfo.Ntasks = fmt.Sprintf("%d", ntasks)
+	}
+	if time > 0 {
+		jobInfo.Time = fmt.Sprintf("%d", time)
+	}
 	jobInfo.Name = name
 
 	// Get ncpus
