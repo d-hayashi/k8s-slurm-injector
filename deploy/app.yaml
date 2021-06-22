@@ -80,22 +80,6 @@ spec:
     targetPort: 8082
   selector:
     app: k8s-slurm-injector
-
----
-apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
-metadata:
-  labels:
-    app: k8s-slurm-injector
-    prometheus: prometheus
-  name: k8s-slurm-injector
-  namespace: k8s-slurm-injector
-spec:
-  endpoints:
-  - port: metrics
-  selector:
-    matchLabels:
-      app: k8s-slurm-injector
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
