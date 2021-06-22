@@ -247,7 +247,7 @@ func (s JobEnvToConfigMapHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 		if isUse {
 			if key == "CUDA_VISIBLE_DEVICES" {
 				env["NVIDIA_VISIBLE_DEVICES"] = value
-			}else {
+			} else {
 				env[key] = value
 			}
 		}
