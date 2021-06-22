@@ -479,6 +479,11 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 				},
 			},
 		)
+
+		// Remove `spec.containers[].resources.limits.nvidia.com/gpu`
+		delete(podSpec.Containers[i].Resources.Limits, "nvidia.com/gpu")
+		// Remove `spec.containers[].resources.requests.nvidia.com/gpu`
+		delete(podSpec.Containers[i].Resources.Requests, "nvidia.com/gpu")
 	}
 
 	// Add container `slurm-watcher` as sidecar

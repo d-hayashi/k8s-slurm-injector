@@ -283,6 +283,8 @@ func TestSidecarinjector_Inject(t *testing.T) {
 				if len(test.obj.(*corev1.Pod).Spec.Containers) > 1 {
 					assert.NotEmpty(test.obj.(*corev1.Pod).Spec.Containers[0].Lifecycle)
 					assert.True(*test.obj.(*corev1.Pod).Spec.ShareProcessNamespace)
+					assert.Empty(test.obj.(*corev1.Pod).Spec.Containers[0].Resources.Limits["nvidia.com/gpu"])
+					assert.Empty(test.obj.(*corev1.Pod).Spec.Containers[0].Resources.Requests["nvidia.com/gpu"])
 				}
 			case *batchv1.Job:
 				assert.Equal(test.expObj.(*batchv1.Job).ObjectMeta, test.obj.(*batchv1.Job).ObjectMeta)
