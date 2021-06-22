@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
@@ -12,7 +11,6 @@ import (
 
 	"github.com/oklog/run"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 
 	"github.com/d-hayashi/k8s-slurm-injector/internal/config_map"
@@ -21,12 +19,9 @@ import (
 	"github.com/d-hayashi/k8s-slurm-injector/internal/log"
 	internalmetricsprometheus "github.com/d-hayashi/k8s-slurm-injector/internal/metrics/prometheus"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/mutation/finalizer"
-	"github.com/d-hayashi/k8s-slurm-injector/internal/mutation/mark"
-	internalmutationprometheus "github.com/d-hayashi/k8s-slurm-injector/internal/mutation/prometheus"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/mutation/sidecar"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/slurm_handler"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/ssh_handler"
-	"github.com/d-hayashi/k8s-slurm-injector/internal/validation/ingress"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/watcher"
 )
 
@@ -85,45 +80,6 @@ func runApp() error {
 		return fmt.Errorf("failed to initialize sidecar injector: %w", err)
 	}
 
-	var marker mark.Marker
-	if len(cfg.LabelMarks) > 0 {
-		marker = mark.NewLabelMarker(cfg.LabelMarks)
-		logger.Infof("label marker webhook enabled")
-	} else {
-		marker = mark.DummyMarker
-		logger.Warningf("label marker webhook disabled")
-	}
-
-	var ingressHostValidator ingress.Validator
-	if len(cfg.IngressHostRegexes) > 0 {
-		ingressHostValidator, err = ingress.NewHostRegexValidator(cfg.IngressHostRegexes)
-		if err != nil {
-			return fmt.Errorf("could not create ingress regex host validator: %w", err)
-		}
-		logger.Infof("ingress host regex validation webhook enabled")
-	} else {
-		ingressHostValidator = ingress.DummyValidator
-		logger.Warningf("ingress host regex validation webhook disabled")
-	}
-
-	var ingressSingleHostValidator ingress.Validator
-	if cfg.EnableIngressSingleHost {
-		ingressSingleHostValidator = ingress.SingleHostValidator
-		logger.Infof("ingress single host validation webhook enabled")
-	} else {
-		ingressSingleHostValidator = ingress.DummyValidator
-		logger.Warningf("ingress single host validation webhook disabled")
-	}
-
-	var serviceMonitorSafer internalmutationprometheus.ServiceMonitorSafer
-	if cfg.MinSMScrapeInterval != 0 {
-		serviceMonitorSafer = internalmutationprometheus.NewServiceMonitorSafer(cfg.MinSMScrapeInterval)
-		logger.Infof("service monitor safer webhook enabled")
-	} else {
-		serviceMonitorSafer = internalmutationprometheus.DummyServiceMonitorSafer
-		logger.Warningf("service monitor safer webhook disabled")
-	}
-
 	// Prepare run entrypoints.
 	var g run.Group
 
@@ -153,16 +109,6 @@ func runApp() error {
 	{
 		logger := logger.WithKV(log.KV{"addr": cfg.MetricsListenAddr, "http-server": "metrics"})
 		mux := http.NewServeMux()
-
-		// Metrics.
-		mux.Handle(cfg.MetricsPath, promhttp.Handler())
-
-		// Pprof.
-		mux.HandleFunc("/debug/pprof/", pprof.Index)
-		mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
-		mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
-		mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
-		mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 
 		// Health checks.
 		mux.HandleFunc("/healthz", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
@@ -195,14 +141,10 @@ func runApp() error {
 
 		// Webhook handler.
 		wh, err := webhook.New(webhook.Config{
-			Marker:                     marker,
-			SidecarInjector:            sidecarInjector,
-			Finalizer:                  _finalizer,
-			IngressRegexHostValidator:  ingressHostValidator,
-			IngressSingleHostValidator: ingressSingleHostValidator,
-			ServiceMonitorSafer:        serviceMonitorSafer,
-			MetricsRecorder:            metricsRec,
-			Logger:                     logger,
+			SidecarInjector: sidecarInjector,
+			Finalizer:       _finalizer,
+			MetricsRecorder: metricsRec,
+			Logger:          logger,
 		})
 		if err != nil {
 			return fmt.Errorf("could not create webhooks handler: %w", err)

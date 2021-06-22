@@ -18,23 +18,5 @@ func (h handler) routes(router *http.ServeMux) error {
 	}
 	router.Handle("/wh/mutating/finalize", finalizer)
 
-	allmark, err := h.allMark()
-	if err != nil {
-		return err
-	}
-	router.Handle("/wh/mutating/allmark", allmark)
-
-	ingressVal, err := h.ingressValidation()
-	if err != nil {
-		return err
-	}
-	router.Handle("/wh/validating/ingress", ingressVal)
-
-	safeServiceMonitor, err := h.safeServiceMonitor()
-	if err != nil {
-		return err
-	}
-	router.Handle("/wh/mutating/safeservicemonitor", safeServiceMonitor)
-
 	return nil
 }

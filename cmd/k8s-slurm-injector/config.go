@@ -19,19 +19,15 @@ type CmdConfig struct {
 	TLSCertFilePath         string
 	TLSKeyFilePath          string
 	EnableIngressSingleHost bool
-	IngressHostRegexes      []string
 	MinSMScrapeInterval     time.Duration
 
-	LabelMarks     map[string]string
 	SSHDestination string
 	SSHPort        string
 }
 
 // NewCmdConfig returns a new command configuration.
 func NewCmdConfig() (*CmdConfig, error) {
-	c := &CmdConfig{
-		LabelMarks: map[string]string{},
-	}
+	c := &CmdConfig{}
 	app := kingpin.New("k8s-slurm-injector", "A Kubernetes admission webhook for injecting slurm jobs.")
 	app.Version(Version)
 
@@ -44,11 +40,8 @@ func NewCmdConfig() (*CmdConfig, error) {
 	app.Flag("slurm-path", "the path where slurm-controls will be served.").Default("/slurm").StringVar(&c.SlurmPath)
 	app.Flag("tls-cert-file-path", "the path for the webhook HTTPS server TLS cert file.").StringVar(&c.TLSCertFilePath)
 	app.Flag("tls-key-file-path", "the path for the webhook HTTPS server TLS key file.").StringVar(&c.TLSKeyFilePath)
-	app.Flag("webhook-label-marks", "a map of labels the webhook will set to all resources, if no labels, the label marker webhook will be disabled. Can repeat flag").Short('l').StringMapVar(&c.LabelMarks)
 	app.Flag("webhook-ssh-destination", "SSH destination where slurm controller is working").StringVar(&c.SSHDestination)
 	app.Flag("webhook-ssh-port", "SSH port").Default("22").StringVar(&c.SSHPort)
-	app.Flag("webhook-enable-ingress-single-host", "enables validation of ingress to have only a single host/rule.").Short('s').BoolVar(&c.EnableIngressSingleHost)
-	app.Flag("webhook-ingress-host-regex", "a list of regexes that will validate ingress hosts matching against this regexes, no host disables validation webhook. Can repeat flag.").Short('h').StringsVar(&c.IngressHostRegexes)
 	app.Flag("webhook-sm-min-scrape-interval", "the minimum screate interval service monitors can have.").DurationVar(&c.MinSMScrapeInterval)
 
 	_, err := app.Parse(os.Args[1:])
