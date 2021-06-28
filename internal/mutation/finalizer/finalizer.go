@@ -20,13 +20,18 @@ type Finalizer interface {
 }
 
 // NewFinalizer returns a new finalizer that will finalize slurm jobs.
-func NewFinalizer(configMapHandler config_map.ConfigMapHandler, slurmHandler slurm_handler.SlurmHandler) (Finalizer, error) {
-	return &finalizer{configMapHandler: configMapHandler, slurmHandler: slurmHandler}, nil
+func NewFinalizer(
+	configMapHandler config_map.ConfigMapHandler,
+	slurmHandler slurm_handler.SlurmHandler,
+	targetNamespace []string,
+) (Finalizer, error) {
+	return &finalizer{configMapHandler: configMapHandler, slurmHandler: slurmHandler, targetNamespace: targetNamespace}, nil
 }
 
 type finalizer struct {
 	configMapHandler config_map.ConfigMapHandler
 	slurmHandler     slurm_handler.SlurmHandler
+	targetNamespace  []string
 }
 
 func (f finalizer) Finalize(_ context.Context, obj metav1.Object) (string, error) {
@@ -46,7 +51,7 @@ func (f finalizer) Finalize(_ context.Context, obj metav1.Object) (string, error
 	}
 
 	// Check if injection is enabled
-	isInjectionEnabled := sidecar.IsInjectionEnabled(obj)
+	isInjectionEnabled := sidecar.IsInjectionEnabled(obj, f.targetNamespace)
 	if !isInjectionEnabled {
 		return "", nil
 	}

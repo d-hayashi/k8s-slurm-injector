@@ -141,7 +141,8 @@ func TestFinalizer_Finalize(t *testing.T) {
 
 			dummyConfigMapHandler, _ := config_map.NewDummyConfigMapHandler()
 			dummySlurmHandler, _ := slurm_handler.NewDummySlurmHandler()
-			handler, _ := finalizer.NewFinalizer(dummyConfigMapHandler, dummySlurmHandler)
+			targetNamespace := []string{"target-.*"}
+			handler, _ := finalizer.NewFinalizer(dummyConfigMapHandler, dummySlurmHandler, targetNamespace)
 
 			_, err := handler.Finalize(context.TODO(), test.obj)
 			require.NoError(err)

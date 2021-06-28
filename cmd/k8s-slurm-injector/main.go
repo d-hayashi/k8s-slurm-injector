@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -48,6 +49,9 @@ func runApp() error {
 	logger := log.NewLogrus(logrusLogEntry).WithKV(log.KV{"version": Version})
 	logger.Debugf("debug mode")
 
+	// Parse arguments
+	targetNamespaces := strings.Split(cfg.TargetNamespaces, ",")
+
 	// Dependencies.
 	metricsRec := internalmetricsprometheus.NewRecorder(prometheus.DefaultRegisterer)
 
@@ -70,12 +74,13 @@ func runApp() error {
 	}
 
 	// Initialize finalizer
-	_finalizer, err := finalizer.NewFinalizer(configMapHandler, slurmHandler)
+	_finalizer, err := finalizer.NewFinalizer(configMapHandler, slurmHandler, targetNamespaces)
 	if err != nil {
 		return fmt.Errorf("failed to initialize finalizer: %s", err)
 	}
 
-	sidecarInjector, err := sidecar.NewSidecarInjector(sshHandler, configMapHandler)
+	// Initialize Sidecar-injector
+	sidecarInjector, err := sidecar.NewSidecarInjector(sshHandler, configMapHandler, targetNamespaces)
 	if err != nil {
 		return fmt.Errorf("failed to initialize sidecar injector: %w", err)
 	}
