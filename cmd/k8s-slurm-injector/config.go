@@ -21,8 +21,9 @@ type CmdConfig struct {
 	EnableIngressSingleHost bool
 	MinSMScrapeInterval     time.Duration
 
-	SSHDestination string
-	SSHPort        string
+	SSHDestination   string
+	SSHPort          string
+	TargetNamespaces string
 }
 
 // NewCmdConfig returns a new command configuration.
@@ -42,6 +43,7 @@ func NewCmdConfig() (*CmdConfig, error) {
 	app.Flag("tls-key-file-path", "the path for the webhook HTTPS server TLS key file.").StringVar(&c.TLSKeyFilePath)
 	app.Flag("webhook-ssh-destination", "SSH destination where slurm controller is working").StringVar(&c.SSHDestination)
 	app.Flag("webhook-ssh-port", "SSH port").Default("22").StringVar(&c.SSHPort)
+	app.Flag("target-namespaces", "Target namespaces (comma separated)").StringVar(&c.TargetNamespaces)
 	app.Flag("webhook-sm-min-scrape-interval", "the minimum screate interval service monitors can have.").DurationVar(&c.MinSMScrapeInterval)
 
 	_, err := app.Parse(os.Args[1:])

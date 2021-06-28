@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -24,9 +25,13 @@ type SidecarInjector interface {
 }
 
 // NewSidecarInjector returns a new sidecar-injector that will inject sidecars.
-func NewSidecarInjector(sshHandler ssh_handler.SSHHandler, configMapHandler config_map.ConfigMapHandler) (SidecarInjector, error) {
+func NewSidecarInjector(
+	sshHandler ssh_handler.SSHHandler,
+	configMapHandler config_map.ConfigMapHandler,
+	targetNamespaces []string,
+) (SidecarInjector, error) {
 	var err error
-	injector := sidecarinjector{ssh: sshHandler, configMapHandler: configMapHandler}
+	injector := sidecarinjector{ssh: sshHandler, configMapHandler: configMapHandler, TargetNamespaces: targetNamespaces}
 	injector.Nodes, err = injector.fetchSlurmNodes()
 	if err == nil {
 		injector.Partitions, err = injector.fetchSlurmPartitions()
@@ -40,6 +45,7 @@ type sidecarinjector struct {
 	configMapHandler config_map.ConfigMapHandler
 	Nodes            []string
 	Partitions       []string
+	TargetNamespaces []string
 }
 
 type JobInformation struct {
@@ -81,9 +87,9 @@ func (s *sidecarinjector) SetPartitions(partitions []string) {
 	s.Partitions = partitions
 }
 
-func IsInjectionEnabled(obj metav1.Object) bool {
+func IsInjectionEnabled(obj metav1.Object, targetNamespaces []string) bool {
 	var podSpec corev1.PodSpec
-	isInjection := false
+	isInjectionEnabled := false
 
 	// Get labels
 	labels := obj.GetLabels()
@@ -94,7 +100,14 @@ func IsInjectionEnabled(obj metav1.Object) bool {
 	// Check labels
 	for key, value := range labels {
 		if key == "k8s-slurm-injector/injection" && value == "enabled" {
-			isInjection = true
+			isInjectionEnabled = true
+		}
+	}
+
+	// Check namespaces
+	for _, targetNamespace := range targetNamespaces {
+		if match, _ := regexp.MatchString(targetNamespace, obj.GetNamespace()); match {
+			isInjectionEnabled = true
 		}
 	}
 
@@ -114,12 +127,12 @@ func IsInjectionEnabled(obj metav1.Object) bool {
 	for _, container := range podSpec.Containers {
 		for _, env := range container.Env {
 			if env.Name == "K8S_SLURM_INJECTOR_INJECTION" && env.Value == "enabled" {
-				isInjection = true
+				isInjectionEnabled = true
 			}
 		}
 	}
 
-	return isInjection
+	return isInjectionEnabled
 }
 
 func (s sidecarinjector) validate(obj metav1.Object) error {
@@ -672,7 +685,7 @@ func (s sidecarinjector) Inject(_ context.Context, obj metav1.Object) (string, e
 	}
 
 	// Check if injection is enabled
-	if !IsInjectionEnabled(obj) {
+	if !IsInjectionEnabled(obj, s.TargetNamespaces) {
 		return "", nil
 	}
 

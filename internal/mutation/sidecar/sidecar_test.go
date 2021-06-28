@@ -92,6 +92,43 @@ func TestSidecarinjector_Inject(t *testing.T) {
 			},
 		},
 
+		"Having a pod in a specific namespace, the label should be mutated.": {
+			obj: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test",
+					Labels: map[string]string{
+						"test1": "value1",
+						"test2": "value2",
+					},
+					Namespace: "target-namespace",
+				},
+			},
+			expObj: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test",
+					Namespace: "target-namespace",
+					Labels: map[string]string{
+						"test1": "value1",
+						"test2": "value2",
+					},
+					Annotations: map[string]string{
+						"k8s-slurm-injector/namespace":               "target-namespace",
+						"k8s-slurm-injector/object-name":             "pod-test",
+						"k8s-slurm-injector/status":                  "injected",
+						"k8s-slurm-injector/node-specification-mode": "",
+						"k8s-slurm-injector/partition":               "",
+						"k8s-slurm-injector/node":                    "::K8S_SLURM_INJECTOR_NODE::",
+						"k8s-slurm-injector/ntasks":                  "1",
+						"k8s-slurm-injector/ncpus":                   "1",
+						"k8s-slurm-injector/gpu-limit":               "false",
+						"k8s-slurm-injector/gres":                    "",
+						"k8s-slurm-injector/time":                    "",
+						"k8s-slurm-injector/name":                    "",
+					},
+				},
+			},
+		},
+
 		"Having a pod without labels, the labels should not be mutated.": {
 			obj: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
@@ -271,7 +308,8 @@ func TestSidecarinjector_Inject(t *testing.T) {
 
 			sshHandler, _ := ssh_handler.Dummy()
 			configMapHandler, _ := config_map.NewDummyConfigMapHandler()
-			injector, _ := sidecar.NewSidecarInjector(sshHandler, configMapHandler)
+			targetNamespaces := []string{"target-.*"}
+			injector, _ := sidecar.NewSidecarInjector(sshHandler, configMapHandler, targetNamespaces)
 			injector.SetNodes([]string{"node1"})
 
 			_, err := injector.Inject(context.TODO(), test.obj)
