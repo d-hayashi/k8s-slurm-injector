@@ -110,13 +110,13 @@ func TestFinalizer_Finalize(t *testing.T) {
 		"Having a pod without labels, the labels should not be mutated.": {
 			obj: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: "test",
+					Name:      "test",
 					Namespace: "default",
 				},
 			},
 			expObj: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: "test",
+					Name:      "test",
 					Namespace: "default",
 				},
 			},
@@ -125,13 +125,13 @@ func TestFinalizer_Finalize(t *testing.T) {
 		"Having a service, the labels should not be mutated.": {
 			obj: &corev1.Service{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: "test",
+					Name:      "test",
 					Namespace: "default",
 				},
 			},
 			expObj: &corev1.Service{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: "test",
+					Name:      "test",
 					Namespace: "default",
 				},
 			},

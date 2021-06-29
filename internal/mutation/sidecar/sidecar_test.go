@@ -70,7 +70,7 @@ func TestSidecarinjector_Inject(t *testing.T) {
 		"Having a pod with labels without injection, the labels should not be mutated.": {
 			obj: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: "test",
+					Name:      "test",
 					Namespace: "default",
 					Labels: map[string]string{
 						"test1":                        "value1",
@@ -83,7 +83,7 @@ func TestSidecarinjector_Inject(t *testing.T) {
 			},
 			expObj: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: "test",
+					Name:      "test",
 					Namespace: "default",
 					Labels: map[string]string{
 						"test1":                        "value1",
@@ -136,13 +136,13 @@ func TestSidecarinjector_Inject(t *testing.T) {
 		"Having a pod without labels, the labels should not be mutated.": {
 			obj: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: "test",
+					Name:      "test",
 					Namespace: "default",
 				},
 			},
 			expObj: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: "test",
+					Name:      "test",
 					Namespace: "default",
 				},
 			},
@@ -249,13 +249,13 @@ func TestSidecarinjector_Inject(t *testing.T) {
 		"Having a service, the labels should not be mutated.": {
 			obj: &corev1.Service{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: "test",
+					Name:      "test",
 					Namespace: "default",
 				},
 			},
 			expObj: &corev1.Service{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: "test",
+					Name:      "test",
 					Namespace: "default",
 				},
 			},
