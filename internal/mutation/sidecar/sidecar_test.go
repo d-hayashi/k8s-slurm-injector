@@ -71,6 +71,7 @@ func TestSidecarinjector_Inject(t *testing.T) {
 			obj: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test",
+					Namespace: "default",
 					Labels: map[string]string{
 						"test1":                        "value1",
 						"test2":                        "value2",
@@ -83,6 +84,7 @@ func TestSidecarinjector_Inject(t *testing.T) {
 			expObj: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test",
+					Namespace: "default",
 					Labels: map[string]string{
 						"test1":                        "value1",
 						"test2":                        "value2",
@@ -135,11 +137,13 @@ func TestSidecarinjector_Inject(t *testing.T) {
 			obj: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test",
+					Namespace: "default",
 				},
 			},
 			expObj: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test",
+					Namespace: "default",
 				},
 			},
 		},
@@ -246,11 +250,13 @@ func TestSidecarinjector_Inject(t *testing.T) {
 			obj: &corev1.Service{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test",
+					Namespace: "default",
 				},
 			},
 			expObj: &corev1.Service{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test",
+					Namespace: "default",
 				},
 			},
 		},

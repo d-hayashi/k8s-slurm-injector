@@ -111,11 +111,13 @@ func TestFinalizer_Finalize(t *testing.T) {
 			obj: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test",
+					Namespace: "default",
 				},
 			},
 			expObj: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test",
+					Namespace: "default",
 				},
 			},
 		},
@@ -124,11 +126,13 @@ func TestFinalizer_Finalize(t *testing.T) {
 			obj: &corev1.Service{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test",
+					Namespace: "default",
 				},
 			},
 			expObj: &corev1.Service{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test",
+					Namespace: "default",
 				},
 			},
 		},
