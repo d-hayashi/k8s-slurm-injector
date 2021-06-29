@@ -161,7 +161,7 @@ func getObjectNamespace(obj metav1.Object) (string, error) {
 			if err == nil {
 				if len(owner.Items) == 0 {
 					continue
-				}else if len(owner.Items) > 1 {
+				} else if len(owner.Items) > 1 {
 					return "", fmt.Errorf("failed to get namespace: more than one %s were found with name %s", ownerReference.Kind, ownerReference.Name)
 				}
 				return owner.Items[0].Namespace, nil
@@ -256,7 +256,6 @@ func (s sidecarinjector) getJobInformation(obj metav1.Object, jobInfo *JobInform
 	ngpus := int64(0)
 	time := int64(0)
 	name := ""
-
 
 	switch v := obj.(type) {
 	case *corev1.Pod:

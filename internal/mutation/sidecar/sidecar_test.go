@@ -27,7 +27,7 @@ func TestSidecarinjector_Inject(t *testing.T) {
 		"Having a pod, the labels should be mutated.": {
 			obj: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: "test",
+					Name:      "test",
 					Namespace: "default",
 					Labels: map[string]string{
 						"test1":                        "value1",
@@ -40,7 +40,7 @@ func TestSidecarinjector_Inject(t *testing.T) {
 			},
 			expObj: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: "test",
+					Name:      "test",
 					Namespace: "default",
 					Labels: map[string]string{
 						"test1":                        "value1",
@@ -147,7 +147,7 @@ func TestSidecarinjector_Inject(t *testing.T) {
 		"Having a job, the labels should be mutated.": {
 			obj: &batchv1.Job{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: "test",
+					Name:      "test",
 					Namespace: "default",
 					Labels: map[string]string{
 						"test1":                        "value1",
@@ -160,7 +160,7 @@ func TestSidecarinjector_Inject(t *testing.T) {
 			},
 			expObj: &batchv1.Job{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: "test",
+					Name:      "test",
 					Namespace: "default",
 					Labels: map[string]string{
 						"test1":                        "value1",
@@ -190,7 +190,7 @@ func TestSidecarinjector_Inject(t *testing.T) {
 		"Having a pod with containers": {
 			obj: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: "test",
+					Name:      "test",
 					Namespace: "default",
 					Labels: map[string]string{
 						"k8s-slurm-injector/injection":               "enabled",
@@ -218,7 +218,7 @@ func TestSidecarinjector_Inject(t *testing.T) {
 			},
 			expObj: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: "test",
+					Name:      "test",
 					Namespace: "default",
 					Labels: map[string]string{
 						"k8s-slurm-injector/injection":               "enabled",
@@ -258,7 +258,7 @@ func TestSidecarinjector_Inject(t *testing.T) {
 		"Having a pod with containers with environment variables": {
 			obj: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: "test",
+					Name:      "test",
 					Namespace: "default",
 				},
 				Spec: corev1.PodSpec{
@@ -288,7 +288,7 @@ func TestSidecarinjector_Inject(t *testing.T) {
 			},
 			expObj: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: "test",
+					Name:      "test",
 					Namespace: "default",
 					Annotations: map[string]string{
 						"k8s-slurm-injector/namespace":               "default",
