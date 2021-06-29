@@ -51,7 +51,7 @@ func (f finalizer) Finalize(_ context.Context, obj metav1.Object) (string, error
 	}
 
 	// Check if injection is enabled
-	isInjectionEnabled := sidecar.IsInjectionEnabled(obj, f.targetNamespace)
+	isInjectionEnabled := sidecar.IsInjectionEnabled(obj, f.targetNamespace, "")
 	if !isInjectionEnabled {
 		return "", nil
 	}

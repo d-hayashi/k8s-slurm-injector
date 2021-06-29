@@ -88,7 +88,7 @@ func (s *sidecarinjector) SetPartitions(partitions []string) {
 	s.Partitions = partitions
 }
 
-func IsInjectionEnabled(obj metav1.Object, targetNamespaces []string) bool {
+func IsInjectionEnabled(obj metav1.Object, targetNamespaces []string, objectNamespace string) bool {
 	var podSpec corev1.PodSpec
 	isInjectionEnabled := false
 
@@ -106,12 +106,18 @@ func IsInjectionEnabled(obj metav1.Object, targetNamespaces []string) bool {
 	}
 
 	// Check namespaces
-	objectNamespace, err := getObjectNamespace(obj)
-	if err != nil {
-		return false
+	var namespace string
+	var err error
+	if objectNamespace != "" {
+		namespace = objectNamespace
+	} else {
+		namespace, err = getObjectNamespace(obj)
+		if err != nil {
+			fmt.Printf("failed to get namespace of the object: %s", err)
+		}
 	}
 	for _, targetNamespace := range targetNamespaces {
-		if match, _ := regexp.MatchString(targetNamespace, objectNamespace); match {
+		if match, _ := regexp.MatchString(targetNamespace, namespace); match {
 			isInjectionEnabled = true
 		}
 	}
@@ -150,21 +156,32 @@ func getObjectNamespace(obj metav1.Object) (string, error) {
 	clientset := client_set.GetClientSet()
 	for _, ownerReference := range obj.GetOwnerReferences() {
 		if ownerReference.Kind == "ReplicaSet" {
-			selector := fmt.Sprintf("metadata.name=%s", ownerReference.Name)
-			owner, err := clientset.AppsV1().ReplicaSets("").List(context.TODO(), metav1.ListOptions{
+			allReplicaSets, err := clientset.AppsV1().ReplicaSets("").List(context.TODO(), metav1.ListOptions{
 				TypeMeta: metav1.TypeMeta{
 					Kind:       ownerReference.Kind,
 					APIVersion: ownerReference.APIVersion,
 				},
-				FieldSelector: selector,
+				LabelSelector:        "",
+				FieldSelector:        fmt.Sprintf("metadata.name=%s", ownerReference.Name),
+				Watch:                false,
+				AllowWatchBookmarks:  false,
+				ResourceVersion:      "",
+				ResourceVersionMatch: "",
+				TimeoutSeconds:       nil,
+				Limit:                0,
+				Continue:             "",
 			})
-			if err == nil {
-				if len(owner.Items) == 0 {
-					continue
-				} else if len(owner.Items) > 1 {
-					return "", fmt.Errorf("failed to get namespace: more than one %s were found with name %s", ownerReference.Kind, ownerReference.Name)
-				}
-				return owner.Items[0].Namespace, nil
+			if err != nil {
+				return "", fmt.Errorf("failed to get replicasets: %s", err)
+			}
+			if len(allReplicaSets.Items) == 0 {
+				fmt.Printf("failed to get the corresponding replicasets to object: %s", ownerReference.Name)
+				continue
+			} else if len(allReplicaSets.Items) > 1 {
+				return "", fmt.Errorf("more than one replicasets were found for object: %s", ownerReference.Name)
+			} else {
+				fmt.Printf("found the corresponding replicaset: %s", allReplicaSets.Items[0].Name)
+				return allReplicaSets.Items[0].Namespace, nil
 			}
 		}
 	}
@@ -189,10 +206,10 @@ func getObjectName(obj metav1.Object) (string, error) {
 	return name, nil
 }
 
-func (s sidecarinjector) validate(obj metav1.Object) error {
+func (s sidecarinjector) validate(obj metav1.Object, objectNamespace string) error {
 	var err error
 	var jobInfo JobInformation
-	err = s.getJobInformation(obj, &jobInfo)
+	err = s.getJobInformation(obj, &jobInfo, objectNamespace)
 
 	if err != nil {
 		return err
@@ -240,12 +257,9 @@ func (s sidecarinjector) getSlurmWebhookURL() string {
 	return slurmWebhookURL
 }
 
-func (s sidecarinjector) getJobInformation(obj metav1.Object, jobInfo *JobInformation) error {
+func (s sidecarinjector) getJobInformation(obj metav1.Object, jobInfo *JobInformation, objectNamespace string) error {
 	var podSpec corev1.PodSpec
-	namespace, err := getObjectNamespace(obj)
-	if err != nil {
-		return fmt.Errorf("failed to get namespace of object: %s", obj)
-	}
+	namespace := objectNamespace
 	objectname, err := getObjectName(obj)
 	if err != nil {
 		return fmt.Errorf("failed to get name of object: %s", obj)
@@ -405,7 +419,7 @@ func (s sidecarinjector) constructURL(slurmWebhookURL string, jobInfo JobInforma
 	return url
 }
 
-func (s sidecarinjector) mutateObject(obj metav1.Object) error {
+func (s sidecarinjector) mutateObject(obj metav1.Object, objectNamespace string) error {
 	var podSpec corev1.PodSpec
 	var jobInfo JobInformation
 	var err error
@@ -424,7 +438,7 @@ func (s sidecarinjector) mutateObject(obj metav1.Object) error {
 
 	// Construct URLs
 	slurmWebhookURL := s.getSlurmWebhookURL()
-	err = s.getJobInformation(obj, &jobInfo)
+	err = s.getJobInformation(obj, &jobInfo, objectNamespace)
 	if err != nil {
 		return fmt.Errorf("failed to get job-information: %s", err.Error())
 	}
@@ -684,12 +698,8 @@ func (s sidecarinjector) fetchSlurmPartitions() ([]string, error) {
 	return partitions, err
 }
 
-func (s sidecarinjector) createConfigMap(obj metav1.Object) error {
-	namespace, err := getObjectNamespace(obj)
-	if err != nil {
-		return fmt.Errorf("failed to get object's namespace during creating a config-map: %s", err)
-	}
-
+func (s sidecarinjector) createConfigMap(obj metav1.Object, objectNamespace string) error {
+	namespace := objectNamespace
 	annotations := obj.GetAnnotations()
 	objectName, exist := annotations["k8s-slurm-injector/object-name"]
 	if !exist {
@@ -710,7 +720,7 @@ func (s sidecarinjector) createConfigMap(obj metav1.Object) error {
 		},
 	}
 
-	_, err = s.configMapHandler.GetConfigMap(namespace, configMapName, nil)
+	_, err := s.configMapHandler.GetConfigMap(namespace, configMapName, nil)
 	if errors.IsNotFound(err) {
 		// Create a config-map
 		_, err := s.configMapHandler.CreateConfigMap(namespace, cm, nil)
@@ -745,25 +755,32 @@ func (s sidecarinjector) Inject(_ context.Context, obj metav1.Object) (string, e
 		return "", nil
 	}
 
+	// Get object's namespace
+	objectNamespace, err := getObjectNamespace(obj)
+	if err != nil {
+		return "", fmt.Errorf("failed to get object's namespace: %s", err)
+	}
+
 	// Check if injection is enabled
-	if !IsInjectionEnabled(obj, s.TargetNamespaces) {
+	if !IsInjectionEnabled(obj, s.TargetNamespaces, objectNamespace) {
+		fmt.Printf("Ibjection is not enabled: %s", obj)
 		return "", nil
 	}
 
 	// Validate object
-	err = s.validate(obj)
+	err = s.validate(obj, objectNamespace)
 	if err != nil {
 		return "", fmt.Errorf("failed to mutate object: %s", err.Error())
 	}
 
 	// Mutate object
-	err = s.mutateObject(obj)
+	err = s.mutateObject(obj, objectNamespace)
 	if err != nil {
 		return "", fmt.Errorf("failed to mutate object: %s", err.Error())
 	}
 
 	// Create config-map
-	err = s.createConfigMap(obj)
+	err = s.createConfigMap(obj, objectNamespace)
 	if err != nil {
 		return "", fmt.Errorf("failed to create config-map: %s", err.Error())
 	}
