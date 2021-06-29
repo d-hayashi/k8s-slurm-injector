@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sample-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sample-deployment
+  template:
+    metadata:
+      labels:
+        app: sample-deployment
+    spec:
+      containers:
+        - name: busybox
+          image: curlimages/curl:7.75.0
+          env:
+            - name: K8S_SLURM_INJECTOR_INJECTION
+              value: enabled
+            - name: K8S_SLURM_INJECTOR_NODE_SPECIFICATION_MODE
+              value: manual
+            - name: K8S_SLURM_INJECTOR_PARTITION
+              value: ubuntu
+            - name: K8S_SLURM_INJECTOR_NODE
+              value: nsx
+          args:
+            - sleep
+            - "300"
+      restartPolicy: Always

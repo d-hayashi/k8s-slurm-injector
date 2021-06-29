@@ -28,6 +28,7 @@ func TestSidecarinjector_Inject(t *testing.T) {
 			obj: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test",
+					Namespace: "default",
 					Labels: map[string]string{
 						"test1":                        "value1",
 						"test2":                        "value2",
@@ -40,6 +41,7 @@ func TestSidecarinjector_Inject(t *testing.T) {
 			expObj: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test",
+					Namespace: "default",
 					Labels: map[string]string{
 						"test1":                        "value1",
 						"test2":                        "value2",
@@ -48,7 +50,7 @@ func TestSidecarinjector_Inject(t *testing.T) {
 						"k8s-slurm-injector/node":                    "node1",
 					},
 					Annotations: map[string]string{
-						"k8s-slurm-injector/namespace":               "",
+						"k8s-slurm-injector/namespace":               "default",
 						"k8s-slurm-injector/object-name":             "pod-test",
 						"k8s-slurm-injector/status":                  "injected",
 						"k8s-slurm-injector/node-specification-mode": "manual",
@@ -146,6 +148,7 @@ func TestSidecarinjector_Inject(t *testing.T) {
 			obj: &batchv1.Job{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test",
+					Namespace: "default",
 					Labels: map[string]string{
 						"test1":                        "value1",
 						"test2":                        "value2",
@@ -158,6 +161,7 @@ func TestSidecarinjector_Inject(t *testing.T) {
 			expObj: &batchv1.Job{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test",
+					Namespace: "default",
 					Labels: map[string]string{
 						"test1":                        "value1",
 						"test2":                        "value2",
@@ -166,7 +170,7 @@ func TestSidecarinjector_Inject(t *testing.T) {
 						"k8s-slurm-injector/node":                    "node1",
 					},
 					Annotations: map[string]string{
-						"k8s-slurm-injector/namespace":               "",
+						"k8s-slurm-injector/namespace":               "default",
 						"k8s-slurm-injector/object-name":             "job-test",
 						"k8s-slurm-injector/status":                  "injected",
 						"k8s-slurm-injector/node-specification-mode": "manual",
@@ -187,6 +191,7 @@ func TestSidecarinjector_Inject(t *testing.T) {
 			obj: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test",
+					Namespace: "default",
 					Labels: map[string]string{
 						"k8s-slurm-injector/injection":               "enabled",
 						"k8s-slurm-injector/node-specification-mode": "auto",
@@ -214,12 +219,13 @@ func TestSidecarinjector_Inject(t *testing.T) {
 			expObj: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test",
+					Namespace: "default",
 					Labels: map[string]string{
 						"k8s-slurm-injector/injection":               "enabled",
 						"k8s-slurm-injector/node-specification-mode": "auto",
 					},
 					Annotations: map[string]string{
-						"k8s-slurm-injector/namespace":               "",
+						"k8s-slurm-injector/namespace":               "default",
 						"k8s-slurm-injector/object-name":             "pod-test",
 						"k8s-slurm-injector/status":                  "injected",
 						"k8s-slurm-injector/node-specification-mode": "auto",
@@ -253,6 +259,7 @@ func TestSidecarinjector_Inject(t *testing.T) {
 			obj: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test",
+					Namespace: "default",
 				},
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
@@ -282,8 +289,9 @@ func TestSidecarinjector_Inject(t *testing.T) {
 			expObj: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test",
+					Namespace: "default",
 					Annotations: map[string]string{
-						"k8s-slurm-injector/namespace":               "",
+						"k8s-slurm-injector/namespace":               "default",
 						"k8s-slurm-injector/object-name":             "pod-test",
 						"k8s-slurm-injector/status":                  "injected",
 						"k8s-slurm-injector/node-specification-mode": "",

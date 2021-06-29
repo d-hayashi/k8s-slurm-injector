@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/d-hayashi/k8s-slurm-injector/internal/client_set"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/config_map"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/ssh_handler"
 	batchv1 "k8s.io/api/batch/v1"
@@ -105,8 +106,12 @@ func IsInjectionEnabled(obj metav1.Object, targetNamespaces []string) bool {
 	}
 
 	// Check namespaces
+	objectNamespace, err := getObjectNamespace(obj)
+	if err != nil {
+		return false
+	}
 	for _, targetNamespace := range targetNamespaces {
-		if match, _ := regexp.MatchString(targetNamespace, obj.GetNamespace()); match {
+		if match, _ := regexp.MatchString(targetNamespace, objectNamespace); match {
 			isInjectionEnabled = true
 		}
 	}
@@ -133,6 +138,55 @@ func IsInjectionEnabled(obj metav1.Object, targetNamespaces []string) bool {
 	}
 
 	return isInjectionEnabled
+}
+
+func getObjectNamespace(obj metav1.Object) (string, error) {
+	namespace := obj.GetNamespace()
+	if namespace != "" {
+		return namespace, nil
+	}
+
+	// Get namespace by referring ownerReferences
+	clientset := client_set.GetClientSet()
+	for _, ownerReference := range obj.GetOwnerReferences() {
+		if ownerReference.Kind == "ReplicaSet" {
+			selector := fmt.Sprintf("metadata.name=%s", ownerReference.Name)
+			owner, err := clientset.AppsV1().ReplicaSets("").List(context.TODO(), metav1.ListOptions{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       ownerReference.Kind,
+					APIVersion: ownerReference.APIVersion,
+				},
+				FieldSelector: selector,
+			})
+			if err == nil {
+				if len(owner.Items) == 0 {
+					continue
+				}else if len(owner.Items) > 1 {
+					return "", fmt.Errorf("failed to get namespace: more than one %s were found with name %s", ownerReference.Kind, ownerReference.Name)
+				}
+				return owner.Items[0].Namespace, nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("failed to get namespace of object: %s", obj)
+}
+
+func getObjectName(obj metav1.Object) (string, error) {
+	name := obj.GetName()
+	if name != "" {
+		return name, nil
+	}
+
+	// Generate name
+	generateName := obj.GetGenerateName()
+	if generateName == "" {
+		return "", fmt.Errorf("failed to get GenerateName")
+	}
+
+	name = generateName + strconv.FormatInt(obj.GetGeneration(), 10)
+
+	return name, nil
 }
 
 func (s sidecarinjector) validate(obj metav1.Object) error {
@@ -188,8 +242,14 @@ func (s sidecarinjector) getSlurmWebhookURL() string {
 
 func (s sidecarinjector) getJobInformation(obj metav1.Object, jobInfo *JobInformation) error {
 	var podSpec corev1.PodSpec
-	namespace := ""
-	objectname := ""
+	namespace, err := getObjectNamespace(obj)
+	if err != nil {
+		return fmt.Errorf("failed to get namespace of object: %s", obj)
+	}
+	objectname, err := getObjectName(obj)
+	if err != nil {
+		return fmt.Errorf("failed to get name of object: %s", obj)
+	}
 	labels := obj.GetLabels()
 	ntasks := int64(1)
 	ncpus := int64(0)
@@ -197,19 +257,17 @@ func (s sidecarinjector) getJobInformation(obj metav1.Object, jobInfo *JobInform
 	time := int64(0)
 	name := ""
 
+
 	switch v := obj.(type) {
 	case *corev1.Pod:
 		podSpec = v.Spec
-		namespace = v.Namespace
-		objectname = fmt.Sprintf("pod-%s", v.Name)
+		objectname = fmt.Sprintf("pod-%s", objectname)
 	case *batchv1.Job:
 		podSpec = v.Spec.Template.Spec
-		namespace = v.Namespace
-		objectname = fmt.Sprintf("job-%s", v.Name)
+		objectname = fmt.Sprintf("job-%s", objectname)
 	case *batchv1beta1.CronJob:
 		podSpec = v.Spec.JobTemplate.Spec.Template.Spec
-		namespace = v.Namespace
-		objectname = fmt.Sprintf("cronjob-%s", v.Name)
+		objectname = fmt.Sprintf("cronjob-%s", objectname)
 	}
 	jobInfo.Namespace = namespace
 	jobInfo.ObjectName = objectname
@@ -628,7 +686,11 @@ func (s sidecarinjector) fetchSlurmPartitions() ([]string, error) {
 }
 
 func (s sidecarinjector) createConfigMap(obj metav1.Object) error {
-	namespace := obj.GetNamespace()
+	namespace, err := getObjectNamespace(obj)
+	if err != nil {
+		return fmt.Errorf("failed to get object's namespace during creating a config-map: %s", err)
+	}
+
 	annotations := obj.GetAnnotations()
 	objectName, exist := annotations["k8s-slurm-injector/object-name"]
 	if !exist {
@@ -649,7 +711,7 @@ func (s sidecarinjector) createConfigMap(obj metav1.Object) error {
 		},
 	}
 
-	_, err := s.configMapHandler.GetConfigMap(namespace, configMapName, nil)
+	_, err = s.configMapHandler.GetConfigMap(namespace, configMapName, nil)
 	if errors.IsNotFound(err) {
 		// Create a config-map
 		_, err := s.configMapHandler.CreateConfigMap(namespace, cm, nil)
