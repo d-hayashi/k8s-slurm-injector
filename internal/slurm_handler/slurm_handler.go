@@ -83,7 +83,7 @@ func constructCommand(jobInfo *sidecar.JobInformation) ([]string, error) {
 	if jobName == "" {
 		if jobInfo.Namespace == "" || jobInfo.ObjectName == "" {
 			jobName = "k8s-slurm-injector-job"
-		}else {
+		} else {
 			jobName = fmt.Sprintf("%s-%s", jobInfo.Namespace, jobInfo.ObjectName)
 		}
 	}

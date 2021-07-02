@@ -52,8 +52,8 @@ func TestSbatchHandler_constructCommand(t *testing.T) {
 		},
 		"case3": {
 			sidecar.JobInformation{
-				Partition: "partition1",
-				Namespace: "ns",
+				Partition:  "partition1",
+				Namespace:  "ns",
 				ObjectName: "abc",
 			},
 			[]string{
