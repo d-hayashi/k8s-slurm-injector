@@ -50,6 +50,35 @@ func TestSbatchHandler_constructCommand(t *testing.T) {
 				"--time=3600",
 			},
 		},
+		"case3": {
+			sidecar.JobInformation{
+				Partition: "partition1",
+				Namespace: "ns",
+				ObjectName: "abc",
+			},
+			[]string{
+				"sbatch",
+				"--parsable",
+				"--output=/dev/null",
+				"--error=/dev/null",
+				"--job-name=ns-abc",
+				"--partition=partition1",
+			},
+		},
+		"case4": {
+			sidecar.JobInformation{
+				Partition: "partition1",
+				Namespace: "ns",
+			},
+			[]string{
+				"sbatch",
+				"--parsable",
+				"--output=/dev/null",
+				"--error=/dev/null",
+				"--job-name=k8s-slurm-injector-job",
+				"--partition=partition1",
+			},
+		},
 	}
 
 	for name, test := range tests {

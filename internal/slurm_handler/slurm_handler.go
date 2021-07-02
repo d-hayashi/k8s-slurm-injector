@@ -81,7 +81,11 @@ func (h *handler) fetchSlurmNodeInfo() error {
 func constructCommand(jobInfo *sidecar.JobInformation) ([]string, error) {
 	jobName := jobInfo.Name
 	if jobName == "" {
-		jobName = "k8s-slurm-injector-job"
+		if jobInfo.Namespace == "" || jobInfo.ObjectName == "" {
+			jobName = "k8s-slurm-injector-job"
+		}else {
+			jobName = fmt.Sprintf("%s-%s", jobInfo.Namespace, jobInfo.ObjectName)
+		}
 	}
 
 	commands := []string{
