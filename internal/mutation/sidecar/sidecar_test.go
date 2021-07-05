@@ -313,6 +313,40 @@ func TestSidecarinjector_Inject(t *testing.T) {
 				},
 			},
 		},
+		"Having a pod that slurm job has already been injected, the labels should not be mutated.": {
+			obj: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test",
+					Namespace: "default",
+					Labels: map[string]string{
+						"test1":                        "value1",
+						"test2":                        "value2",
+						"k8s-slurm-injector/injection": "enabled",
+						"k8s-slurm-injector/node-specification-mode": "manual",
+						"k8s-slurm-injector/node":                    "node1",
+					},
+					Annotations: map[string]string{
+						"k8s-slurm-injector/status": "injected",
+					},
+				},
+			},
+			expObj: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test",
+					Namespace: "default",
+					Labels: map[string]string{
+						"test1":                        "value1",
+						"test2":                        "value2",
+						"k8s-slurm-injector/injection": "enabled",
+						"k8s-slurm-injector/node-specification-mode": "manual",
+						"k8s-slurm-injector/node":                    "node1",
+					},
+					Annotations: map[string]string{
+						"k8s-slurm-injector/status": "injected",
+					},
+				},
+			},
+		},
 	}
 
 	for name, test := range tests {

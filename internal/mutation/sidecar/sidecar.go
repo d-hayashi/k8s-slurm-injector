@@ -105,6 +105,19 @@ func IsInjectionEnabled(obj metav1.Object, targetNamespaces []string, objectName
 		}
 	}
 
+	// Get annotations
+	annotations := obj.GetAnnotations()
+	if annotations == nil {
+		annotations = map[string]string{}
+	}
+
+	// Check labels
+	for key, value := range annotations {
+		if key == "k8s-slurm-injector/status" && value == "injected" {
+			return false
+		}
+	}
+
 	// Check namespaces
 	var namespace string
 	var err error

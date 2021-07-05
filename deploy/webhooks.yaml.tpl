@@ -21,7 +21,7 @@ webhooks:
         path: /wh/mutating/injectsidecar
       caBundle: CA_BUNDLE
     rules:
-      - operations: ["CREATE", "UPDATE"]
+      - operations: ["CREATE"]
         apiGroups: ["*"]
         apiVersions: ["*"]
         resources: ["cronjobs", "jobs", "pods"]
