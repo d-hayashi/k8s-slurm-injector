@@ -325,7 +325,7 @@ func TestSidecarinjector_Inject(t *testing.T) {
 						"k8s-slurm-injector/node-specification-mode": "manual",
 						"k8s-slurm-injector/node":                    "node1",
 					},
-					Annotations: map[string]string {
+					Annotations: map[string]string{
 						"k8s-slurm-injector/status": "injected",
 					},
 				},
@@ -342,7 +342,7 @@ func TestSidecarinjector_Inject(t *testing.T) {
 						"k8s-slurm-injector/node":                    "node1",
 					},
 					Annotations: map[string]string{
-						"k8s-slurm-injector/status":                  "injected",
+						"k8s-slurm-injector/status": "injected",
 					},
 				},
 			},
