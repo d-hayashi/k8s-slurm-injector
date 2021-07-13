@@ -594,13 +594,13 @@ func (s sidecarinjector) mutateObject(obj metav1.Object, objectNamespace string)
 	for _, idx := range recognizedSidecarContainerIndices {
 		recognizedSidecarContainerCheck +=
 			fmt.Sprintf(
-				"count=0; " +
-					"while [[ $count -lt 10 ]]; " +
-					"do " +
-					"[[ -f /k8s-slurm-injector/sidecar_container_id_%d ]] && break; " +
-					"sleep 1; " +
+				"count=0; "+
+					"while [[ $count -lt 10 ]]; "+
+					"do "+
+					"[[ -f /k8s-slurm-injector/sidecar_container_id_%d ]] && break; "+
+					"sleep 1; "+
 					"done; ",
-					idx,
+				idx,
 			)
 	}
 	sidecar := corev1.Container{
