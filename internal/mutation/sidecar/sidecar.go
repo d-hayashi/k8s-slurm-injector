@@ -541,27 +541,33 @@ func (s sidecarinjector) mutateObject(obj metav1.Object, objectNamespace string)
 	podSpec.InitContainers = append([]corev1.Container{initContainer, initContainer2}, podSpec.InitContainers...)
 
 	// Mutate containers
+	var recognizedSidecarContainerIndices []int
 	for i := range podSpec.Containers {
-		// Add a script to get container-id
-		lifecycle := corev1.Lifecycle{
-			PostStart: &corev1.Handler{
-				Exec: &corev1.ExecAction{Command: []string{
-					"/bin/sh",
-					"-c",
-					fmt.Sprintf(
-						"cat /proc/self/cgroup "+
-							"| grep cpuset: "+
-							"| awk '{n=split($1,A,\"/\"); print A[n]}'"+
-							"> /k8s-slurm-injector/container_id_%d",
-						i),
-				}},
-			},
+		// Add a script to get container-id in case of sidecar "istio-proxy"
+		if podSpec.Containers[i].Name == "istio-proxy" {
+			lifecycle := corev1.Lifecycle{
+				PostStart: &corev1.Handler{
+					Exec: &corev1.ExecAction{Command: []string{
+						"/bin/sh",
+						"-c",
+						fmt.Sprintf(
+							"cat /proc/self/cgroup "+
+								"| grep cpuset: "+
+								"| awk '{n=split($1,A,\"/\"); print A[n]}'"+
+								"> /k8s-slurm-injector/sidecar_container_id_%d",
+							i),
+					}},
+				},
+			}
+			podSpec.Containers[i].Lifecycle = &lifecycle
+			recognizedSidecarContainerIndices = append(recognizedSidecarContainerIndices, i)
 		}
+
+		// Mount shared-volumes
 		volumeMount := corev1.VolumeMount{
 			Name:      "k8s-slurm-injector-shared",
 			MountPath: "/k8s-slurm-injector",
 		}
-		podSpec.Containers[i].Lifecycle = &lifecycle
 		podSpec.Containers[i].VolumeMounts = append(podSpec.Containers[i].VolumeMounts, volumeMount)
 
 		// Set environment variables allocated by Slurm
@@ -584,6 +590,19 @@ func (s sidecarinjector) mutateObject(obj metav1.Object, objectNamespace string)
 	}
 
 	// Add container `slurm-watcher` as sidecar
+	recognizedSidecarContainerCheck := ""
+	for _, idx := range recognizedSidecarContainerIndices {
+		recognizedSidecarContainerCheck +=
+			fmt.Sprintf(
+				"count=0; "+
+					"while [[ $count -lt 10 ]]; "+
+					"do "+
+					"[[ -f /k8s-slurm-injector/sidecar_container_id_%d ]] && break; "+
+					"sleep 1; "+
+					"done; ",
+				idx,
+			)
+	}
 	sidecar := corev1.Container{
 		Name:    "slurm-watcher",
 		Image:   "curlimages/curl:7.75.0",
@@ -597,28 +616,59 @@ func (s sidecarinjector) mutateObject(obj metav1.Object, objectNamespace string)
 				"getState() { curl -s \"${stateURL}&jobid=${jobid}\"; }; " +
 				"scancel() { curl -s \"${scancelURL}&jobid=${jobid}\"; }; " +
 				"trap 'scancel || exit 0' SIGHUP SIGINT SIGQUIT SIGTERM ; " +
+				"touch /k8s-slurm-injector/cids_all;" +
+				"cid_self=$(cat /proc/self/cgroup | grep cpuset: | awk '{n=split($1,A,\"/\"); print A[n]}'); " +
+				recognizedSidecarContainerCheck +
 				"count=0; " +
-				"while [[ $count -lt 10 ]]; " +
+				"while [[ $count -lt 3 ]]; " +
 				"do " +
-				"[[ -f /k8s-slurm-injector/container_id_0 ]] && break; " +
+				"cat /proc/*/cgroup | awk '{n=split($1,A,\"/\"); print A[n]}' " +
+				"| sort | uniq | awk 'length($0)==64{print $0}' >> /k8s-slurm-injector/cids_all;" +
 				"sleep 1; " +
 				"count=$((count+1)); " +
 				"done; " +
-				"[[ $count -ge 10 ]] && scancel && exit 1; " +
-				"cid=$(cat /k8s-slurm-injector/container_id_0); " +
-				"[[ $cid = \"\" ]] && (echo 'Failed to get container_id' >&2; scancel) && exit 1; " +
+				"cat /k8s-slurm-injector/cids_all | sort | uniq | grep -v ${cid_self} > /k8s-slurm-injector/cids; " +
+				"cids=$(cat /k8s-slurm-injector/cids);" +
+				"[[ ! -n \"$cids\" ]] && (echo 'Failed to get container_id' >&2; scancel) && exit 1; " +
+				"pid_sleep=$(ps aux | grep /pause | grep root | head -n1 | awk '{print $1}'); " +
+				"while [[ -n \"$cids\" ]]; " +
+				"do " +
+				"cid=$(cat /k8s-slurm-injector/cids | head -n1); " +
+				"cat /k8s-slurm-injector/cids | tail -n +2 > /k8s-slurm-injector/cids.new;" +
+				"mv /k8s-slurm-injector/cids.new /k8s-slurm-injector/cids; " +
+				"cids=$(cat /k8s-slurm-injector/cids);" +
+				"cat /k8s-slurm-injector/sidecar_container_id_* | grep ${cid} && continue; " +
 				"while true; " +
 				"do " +
 				"sleep 1; " +
-				"cat /proc/*/cgroup | grep ${cid} > /dev/null || break; " +
+				"cat $(find /proc -mindepth 2 -maxdepth 2 -type f -name cgroup | grep -v /proc/${pid_sleep}/cgroup) " +
+				"| grep ${cid} > /dev/null || break; " +
 				"state=$(getState); " +
 				"[[ \"$state\" = \"COMPLETING\" ]] && break; " +
 				"[[ \"$state\" = \"CANCELLED\" ]] && break; " +
 				"done; " +
 				"for pid in $(cd /proc && echo [0-9]* | tr \" \" \"\\n\" | sort -n); " +
 				"do " +
+				"[[ $pid -eq $pid_sleep ]] && continue; " +
 				"cat /proc/${pid}/cgroup | grep ${cid} >/dev/null && kill -9 ${pid} " +
 				"&& echo \"Process ${pid} has been killed by slurm.\" >&2; " +
+				"done; " +
+				"done; " +
+				"echo 'Terminating Istio-pilot if exists'; " +
+				"curl -fsI -X POST http://localhost:15020/quitquitquit; " +
+				"cat /k8s-slurm-injector/sidecar_container_id_* > /k8s-slurm-injector/sidecar_container_ids; " +
+				"cids=$(cat /k8s-slurm-injector/sidecar_container_ids); " +
+				"while [[ -n \"$cids\" ]]; " +
+				"do " +
+				"cid=$(cat /k8s-slurm-injector/sidecar_container_ids | head -n1); " +
+				"cat /k8s-slurm-injector/sidecar_container_ids | tail -n +2 > /k8s-slurm-injector/sidecar_container_ids.new; " +
+				"mv /k8s-slurm-injector/sidecar_container_ids.new /k8s-slurm-injector/sidecar_container_ids; " +
+				"cids=$(cat /k8s-slurm-injector/sidecar_container_ids); " +
+				"for pid in $(cd /proc && echo [0-9]* | tr \" \" \"\\n\" | sort -n); " +
+				"do " +
+				"[[ $pid -eq $pid_sleep ]] && continue; " +
+				"cat /proc/${pid}/cgroup | grep ${cid} >/dev/null && kill -9 ${pid}; " +
+				"done; " +
 				"done; " +
 				"scancel || exit 0",
 		},
@@ -627,6 +677,17 @@ func (s sidecarinjector) mutateObject(obj metav1.Object, objectNamespace string)
 			{
 				Name:      "k8s-slurm-injector-shared",
 				MountPath: "/k8s-slurm-injector",
+			},
+		},
+		Lifecycle: &corev1.Lifecycle{
+			PreStop: &corev1.Handler{
+				Exec: &corev1.ExecAction{Command: []string{
+					"/bin/sh",
+					"-c",
+					fmt.Sprintf(
+						"jobid=$(cat /k8s-slurm-injector/jobid); curl -s \"%s&jobid=${jobid}\"", scancelURL,
+					),
+				}},
 			},
 		},
 	}
