@@ -133,7 +133,7 @@ func (h handler) SBatch(jobInfo *sidecar.JobInformation) (string, error) {
 		out, err = h.ssh.RunCommandCombined(command)
 	}
 
-	return string(out), err
+	return strings.Replace(string(out), "\n", "", -1), err
 }
 
 func (h handler) GetEnv(jobid string) (string, error) {
