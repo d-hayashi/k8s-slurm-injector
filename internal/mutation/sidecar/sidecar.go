@@ -103,6 +103,9 @@ func IsInjectionEnabled(obj metav1.Object, targetNamespaces []string, objectName
 		if key == "k8s-slurm-injector/injection" && value == "enabled" {
 			isInjectionEnabled = true
 		}
+		if key == "k8s-slurm-injector/injection" && value == "disabled" {
+			return false
+		}
 	}
 
 	// Get annotations
@@ -152,6 +155,9 @@ func IsInjectionEnabled(obj metav1.Object, targetNamespaces []string, objectName
 		for _, env := range container.Env {
 			if env.Name == "K8S_SLURM_INJECTOR_INJECTION" && env.Value == "enabled" {
 				isInjectionEnabled = true
+			}
+			if env.Name == "K8S_SLURM_INJECTOR_INJECTION" && env.Value == "disabled" {
+				return false
 			}
 		}
 	}
