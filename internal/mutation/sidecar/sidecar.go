@@ -199,6 +199,14 @@ func getObjectNamespace(obj metav1.Object) (string, error) {
 		}
 	}
 
+	// Get namespace from labels
+	labels := obj.GetLabels()
+	for key, value := range labels {
+		if key == "k8s-slurm-injector/namespace" {
+			return value, nil
+		}
+	}
+
 	return "", fmt.Errorf("failed to get namespace of object: %s", obj)
 }
 
