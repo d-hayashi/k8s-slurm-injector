@@ -99,6 +99,8 @@ func IsInjectionEnabled(obj metav1.Object, targetNamespaces []string, objectName
 	}
 
 	// Check labels
+	hasExperimentLabel := false
+	hasSuggestionLabel := false
 	for key, value := range labels {
 		if key == "k8s-slurm-injector/injection" && value == "enabled" {
 			isInjectionEnabled = true
@@ -106,6 +108,16 @@ func IsInjectionEnabled(obj metav1.Object, targetNamespaces []string, objectName
 		if key == "k8s-slurm-injector/injection" && value == "disabled" {
 			return false
 		}
+		if key == "experiment" {
+			hasExperimentLabel = true
+		}
+		if key == "suggestion" {
+			hasSuggestionLabel = true
+		}
+	}
+	if hasExperimentLabel && hasSuggestionLabel {
+		fmt.Printf("this pod seems to be a part of Katib's resources, so skipped injecting slurm jobs")
+		return false
 	}
 
 	// Get annotations
