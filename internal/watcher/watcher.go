@@ -57,14 +57,14 @@ func NewWatcher(
 		killCandidates:     map[string]bool{},
 	}
 	w := watcher{
-		configMapHandler: configMapHandler,
-		slurm:            slurm,
-		logger:           logger,
-		state:            state,
-		TLSCertFilePath:  TLSCertFilePath,
-		TLSKeyFilePath:   TLSKeyFilePath,
+		configMapHandler:   configMapHandler,
+		slurm:              slurm,
+		logger:             logger,
+		state:              state,
+		TLSCertFilePath:    TLSCertFilePath,
+		TLSKeyFilePath:     TLSKeyFilePath,
 		TLSCertFileContent: TLSCertFileContent,
-		TLSKeyFileContent: TLSKeyFileContent,
+		TLSKeyFileContent:  TLSKeyFileContent,
 	}
 
 	return &w, nil
