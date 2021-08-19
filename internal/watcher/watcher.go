@@ -2,6 +2,7 @@ package watcher
 
 import (
 	"context"
+	"io/ioutil"
 	"time"
 
 	"github.com/d-hayashi/k8s-slurm-injector/internal/config_map"
@@ -15,10 +16,14 @@ type Watcher interface {
 }
 
 type watcher struct {
-	configMapHandler config_map.ConfigMapHandler
-	slurm            slurm_handler.SlurmHandler
-	logger           log.Logger
-	state            jobState
+	configMapHandler   config_map.ConfigMapHandler
+	slurm              slurm_handler.SlurmHandler
+	logger             log.Logger
+	state              jobState
+	TLSCertFilePath    string
+	TLSKeyFilePath     string
+	TLSCertFileContent string
+	TLSKeyFileContent  string
 }
 
 type jobState struct {
@@ -29,19 +34,53 @@ type jobState struct {
 
 type dummyWatcher struct{}
 
-func NewWatcher(configMapHandler config_map.ConfigMapHandler, slurm slurm_handler.SlurmHandler, logger log.Logger) (Watcher, error) {
+func NewWatcher(
+	configMapHandler config_map.ConfigMapHandler,
+	slurm slurm_handler.SlurmHandler,
+	logger log.Logger,
+	TLSCertFilePath string,
+	TLSKeyFilePath string,
+) (Watcher, error) {
+	TLSCertFileContent := ""
+	TLSKeyFileContent := ""
+
+	if TLSCertFilePath != "" {
+		TLSCertFileContent = readFile(TLSCertFilePath)
+	}
+	if TLSKeyFilePath != "" {
+		TLSKeyFileContent = readFile(TLSKeyFilePath)
+	}
+
 	state := jobState{
 		jobIdsOnSlurm:      []string{},
 		jobIdsOnKubernetes: []string{},
 		killCandidates:     map[string]bool{},
 	}
-	w := watcher{configMapHandler: configMapHandler, slurm: slurm, logger: logger, state: state}
+	w := watcher{
+		configMapHandler: configMapHandler,
+		slurm:            slurm,
+		logger:           logger,
+		state:            state,
+		TLSCertFilePath:  TLSCertFilePath,
+		TLSKeyFilePath:   TLSKeyFilePath,
+		TLSCertFileContent: TLSCertFileContent,
+		TLSKeyFileContent: TLSKeyFileContent,
+	}
+
 	return &w, nil
 }
 
 func NewDummyWatcher() (Watcher, error) {
 	w := dummyWatcher{}
 	return &w, nil
+}
+
+func readFile(filePath string) string {
+	bytes, err := ioutil.ReadFile(filePath)
+	if err != nil {
+		panic(err)
+	}
+	return string(bytes)
 }
 
 func (w watcher) Watch(ctx context.Context) error {
@@ -57,6 +96,20 @@ func (w watcher) Watch(ctx context.Context) error {
 			w.routine()
 			w.logger.Debugf("jobs checked")
 		}
+	}
+}
+
+func (w watcher) checkTLSCertFileContent() {
+	currentContent := readFile(w.TLSCertFilePath)
+	if currentContent != w.TLSCertFileContent {
+		panic("TLSCertFile has been updated")
+	}
+}
+
+func (w watcher) checkTLSKeyFileContent() {
+	currentContent := readFile(w.TLSKeyFilePath)
+	if currentContent != w.TLSKeyFileContent {
+		panic("TLSKeyFile has been updated")
 	}
 }
 
@@ -94,6 +147,14 @@ func (w *watcher) fetchJobIdsOnKubernetes() error {
 }
 
 func (w *watcher) routine() {
+	if w.TLSCertFilePath != "" {
+		w.checkTLSCertFileContent()
+	}
+
+	if w.TLSKeyFilePath != "" {
+		w.checkTLSKeyFileContent()
+	}
+
 	if err := w.fetchJobIdsOnSlurm(); err != nil {
 		w.logger.Errorf("could not fetch job-ids on slurm: %s", err.Error())
 		return

@@ -231,7 +231,7 @@ func runApp() error {
 		logger := logger.WithKV(log.KV{"service": "watcher"})
 
 		// Watcher
-		w, err := watcher.NewWatcher(configMapHandler, slurmHandler, logger)
+		w, err := watcher.NewWatcher(configMapHandler, slurmHandler, logger, cfg.TLSCertFilePath, cfg.TLSKeyFilePath)
 		if err != nil {
 			return fmt.Errorf("could not create watcher: %w", err)
 		}
