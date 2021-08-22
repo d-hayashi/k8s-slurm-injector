@@ -857,11 +857,9 @@ func (s sidecarinjector) Inject(_ context.Context, obj metav1.Object) (string, e
 
 	// Check labels
 	labels := obj.GetLabels()
-	if labels != nil {
-		for key, value := range labels {
-			if key == "k8s-slurm-injector/injection" && value == "disabled" {
-				return "", nil
-			}
+	for key, value := range labels {
+		if key == "k8s-slurm-injector/injection" && value == "disabled" {
+			return "", nil
 		}
 	}
 
