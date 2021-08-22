@@ -855,6 +855,16 @@ func (s sidecarinjector) Inject(_ context.Context, obj metav1.Object) (string, e
 		return "", nil
 	}
 
+	// Check labels
+	labels := obj.GetLabels()
+	if labels != nil {
+		for key, value := range labels {
+			if key == "k8s-slurm-injector/injection" && value == "disabled" {
+				return "", nil
+			}
+		}
+	}
+
 	// Get object's namespace
 	objectNamespace, err := getObjectNamespace(obj)
 	if err != nil {
