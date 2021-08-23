@@ -2,6 +2,7 @@ package watcher
 
 import (
 	"context"
+	"fmt"
 	"io/ioutil"
 	"time"
 
@@ -146,6 +147,30 @@ func (w *watcher) fetchJobIdsOnKubernetes() error {
 	return nil
 }
 
+func (w watcher) deleteConfigMapOfJobId(jobId string) error {
+	// Get job-ids on kubernetes
+	cms, err := w.configMapHandler.ListConfigMaps("", v1.ListOptions{
+		LabelSelector: fmt.Sprintf("app=k8s-slurm-injector,k8s-slurm-injector/jobid=%s", jobId),
+	})
+	if err != nil {
+		return err
+	}
+
+	if len(cms.Items) == 0 {
+		return fmt.Errorf("could not find a config-map which corresponds to job-id: %s", jobId)
+	}
+
+	for _, cm := range cms.Items {
+		w.logger.Debugf("deleting config-map %s in namespace %s", cm.GetName(), cm.GetNamespace())
+		err = w.configMapHandler.DeleteConfigMap(cm.GetNamespace(), cm.GetName(), nil)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (w *watcher) routine() {
 	if w.TLSCertFilePath != "" {
 		w.checkTLSCertFileContent()
@@ -174,7 +199,7 @@ func (w *watcher) routine() {
 		if !isExists {
 			// In case the job-id only exists on slurm, add to kill-candidates first.
 			if _, exists := w.state.killCandidates[jobIdOnSlurm]; exists {
-				w.logger.Warningf("killing slurm job '%s'", jobIdOnSlurm)
+				w.logger.Infof("killing slurm job '%s'", jobIdOnSlurm)
 				_, err := w.slurm.SCancel(jobIdOnSlurm)
 				if err != nil {
 					w.logger.Errorf("could not scancel job-id '%s': %s", jobIdOnSlurm, err.Error())
@@ -184,6 +209,22 @@ func (w *watcher) routine() {
 			} else {
 				w.logger.Debugf("adding slurm job '%s' to kill-candidate", jobIdOnSlurm)
 				w.state.killCandidates[jobIdOnSlurm] = true
+			}
+		}
+	}
+
+	for _, jobIdOnKubernetes := range w.state.jobIdsOnKubernetes {
+		isExists := false
+		for _, jobIdOnSlurm := range w.state.jobIdsOnSlurm {
+			if jobIdOnKubernetes == jobIdOnSlurm {
+				isExists = true
+			}
+		}
+		if !isExists {
+			// Remove the corresponding config-map in case that the job-id does not exist on Slurm
+			w.logger.Infof("deleting config-map of job-id %s", jobIdOnKubernetes)
+			if err := w.deleteConfigMapOfJobId(jobIdOnKubernetes); err != nil {
+				w.logger.Errorf("could not delete the corresponding config-map: %s", err.Error())
 			}
 		}
 	}
