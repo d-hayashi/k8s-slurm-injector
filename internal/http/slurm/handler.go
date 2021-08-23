@@ -120,7 +120,8 @@ func (s SbatchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				Name:      configMapName,
 				Namespace: namespace,
 				Labels: map[string]string{
-					"app": "k8s-slurm-injector",
+					"app":                      "k8s-slurm-injector",
+					"k8s-slurm-injector/jobid": out,
 				},
 				Annotations: map[string]string{
 					"k8s-slurm-injector/last-applied-command": "sbatch",
@@ -263,7 +264,8 @@ func (s JobEnvToConfigMapHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 				Name:      configMapName,
 				Namespace: namespace,
 				Labels: map[string]string{
-					"app": "k8s-slurm-injector",
+					"app":                      "k8s-slurm-injector",
+					"k8s-slurm-injector/jobid": jobid,
 				},
 				Annotations: map[string]string{
 					"k8s-slurm-injector/jobid": jobid,
@@ -300,7 +302,8 @@ func (s JobEnvToConfigMapHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 				Name:      configMapName,
 				Namespace: namespace,
 				Labels: map[string]string{
-					"app": "k8s-slurm-injector",
+					"app":                      "k8s-slurm-injector",
+					"k8s-slurm-injector/jobid": jobid,
 				},
 				Annotations: map[string]string{
 					"k8s-slurm-injector/jobid":                      jobid,
