@@ -16,11 +16,13 @@ type SlurmHandler interface {
 	SCancel(jobid string) (string, error)
 	List() ([]string, error)
 	GetNodeInfo() []NodeInfo
+	GetNodeStatus() []NodeStatus
 }
 
 type handler struct {
-	ssh      ssh_handler.SSHHandler
-	nodeInfo []NodeInfo
+	ssh        ssh_handler.SSHHandler
+	nodeInfo   []NodeInfo
+	nodeStatus []NodeStatus
 }
 
 type dummyHandler struct{}
@@ -28,6 +30,13 @@ type dummyHandler struct{}
 type NodeInfo struct {
 	Node      string
 	Partition string
+}
+
+type NodeStatus struct {
+	Node        string
+	NumCPUsFree string
+	NumGPUsFree string
+	MemFree     string
 }
 
 func NewSlurmHandler(ssh ssh_handler.SSHHandler) (SlurmHandler, error) {
@@ -73,6 +82,61 @@ func (h *handler) fetchSlurmNodeInfo() error {
 
 	if err == nil {
 		h.nodeInfo = nodeInfo
+	}
+
+	return err
+}
+
+func (h *handler) fetchSlurmNodeStatus() error {
+	command := ssh_handler.SSHCommand{
+		Command: `
+          nodes=$(sinfo --Node | tail -n +2 | awk '{print $1}');
+          for node in ${nodes}; do 
+            numCPUsFree=$(sinfo -N -o "%N %C" | awk -v node=${node} '{if ($1 == node) {cnt=split($2,cpus,"/"); print cpus[2]}}');
+            numGPUs=$(sinfo -N -o "%N %f" | awk -v node=${node} '{if ($1 == node) { if (match($0, /[0-9]+GPUs/)) {print substr($0, RSTART, RLENGTH - 4)} }}');
+            numGPUsAllocated=$(squeue -o "%R %b" | awk -v node=${node} '(NR==0){count=0}{if ($1 == node) {if (match($2, "gpu.*[0-9]+")) {cnt=split($2,gres,":"); count += gres[cnt]}}} END{print count}');
+            numGPUsFree=$((numGPUs - numGPUsAllocated));
+            memFree=$(sinfo -N -o "%N %e" | awk -v node=${node} '($1 == node){print $2}');
+            echo "${node} ${numCPUsFree} ${numGPUsFree} ${memFree}";
+          done
+        `,
+	}
+
+	var nodeStatus []NodeStatus
+	out, err := h.ssh.RunCommand(command)
+	candidates := strings.Split(string(out), "\n")
+	for _, candidate := range candidates {
+		status := strings.Split(candidate, " ")
+		if len(status) != 4 {
+			//fmt.Printf("cannot deserialize string: %s, skipped\n", candidate)
+			continue
+		}
+		node := status[0]
+		numCPUsFree := status[1]
+		numGPUsFree := status[2]
+		memFree := status[3]
+		if node == "" {
+			fmt.Printf("node is empty: %s, skipped\n", candidate)
+			continue
+		}
+		if numCPUsFree == "" {
+			fmt.Printf("numCPUsFree is empty: %s, skipped\n", candidate)
+			continue
+		}
+		if numGPUsFree == "" {
+			fmt.Printf("numGPUsFree is empty: %s, skipped\n", candidate)
+			continue
+		}
+		if memFree == "" {
+			fmt.Printf("memFree is empty: %s, skipped\n", candidate)
+			continue
+		}
+
+		nodeStatus = append(nodeStatus, NodeStatus{Node: node, NumCPUsFree: numCPUsFree, NumGPUsFree: numGPUsFree, MemFree: memFree})
+	}
+
+	if err == nil {
+		h.nodeStatus = nodeStatus
 	}
 
 	return err
@@ -208,6 +272,14 @@ func (h handler) GetNodeInfo() []NodeInfo {
 	return h.nodeInfo
 }
 
+func (h handler) GetNodeStatus() []NodeStatus {
+	err := h.fetchSlurmNodeStatus()
+	if err != nil {
+		return []NodeStatus{}
+	}
+	return h.nodeStatus
+}
+
 func (d dummyHandler) SBatch(_ *sidecar.JobInformation) (string, error) {
 	return "1234567890", nil
 }
@@ -245,6 +317,15 @@ func (d dummyHandler) GetNodeInfo() []NodeInfo {
 		{
 			Node:      "node1",
 			Partition: "partition1",
+		},
+	}
+}
+
+func (d dummyHandler) GetNodeStatus() []NodeStatus {
+	return []NodeStatus{
+		{
+			Node:        "node1",
+			NumGPUsFree: "1",
 		},
 	}
 }
