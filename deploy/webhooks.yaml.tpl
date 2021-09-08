@@ -24,7 +24,7 @@ webhooks:
       - operations: ["CREATE"]
         apiGroups: ["*"]
         apiVersions: ["*"]
-        resources: ["cronjobs", "jobs", "pods"]
+        resources: ["pods"]
   - name: delete-slurm-job.d-hayashi.dev
     objectSelector:
       matchExpressions:
@@ -43,4 +43,4 @@ webhooks:
       - operations: ["DELETE"]
         apiGroups: ["*"]
         apiVersions: ["*"]
-        resources: ["cronjobs", "jobs", "pods"]
+        resources: ["pods"]

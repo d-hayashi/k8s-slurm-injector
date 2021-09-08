@@ -2,14 +2,17 @@ package watcher
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"time"
 
+	"github.com/d-hayashi/k8s-slurm-injector/internal/client_set"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/config_map"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/log"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/slurm_handler"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 type Watcher interface {
@@ -31,6 +34,12 @@ type jobState struct {
 	jobIdsOnSlurm      []string
 	jobIdsOnKubernetes []string
 	killCandidates     map[string]bool
+}
+
+type patchStringValue struct {
+	Op    string `json:"op"`
+	Path  string `json:"path"`
+	Value string `json:"value"`
 }
 
 type dummyWatcher struct{}
@@ -127,7 +136,7 @@ func (w *watcher) fetchJobIdsOnSlurm() error {
 
 func (w *watcher) fetchJobIdsOnKubernetes() error {
 	// Get job-ids on kubernetes
-	cms, err := w.configMapHandler.ListConfigMaps("", v1.ListOptions{
+	cms, err := w.configMapHandler.ListConfigMaps("", metav1.ListOptions{
 		LabelSelector: "app=k8s-slurm-injector",
 	})
 	if err != nil {
@@ -149,7 +158,7 @@ func (w *watcher) fetchJobIdsOnKubernetes() error {
 
 func (w watcher) deleteConfigMapOfJobId(jobId string) error {
 	// Get job-ids on kubernetes
-	cms, err := w.configMapHandler.ListConfigMaps("", v1.ListOptions{
+	cms, err := w.configMapHandler.ListConfigMaps("", metav1.ListOptions{
 		LabelSelector: fmt.Sprintf("app=k8s-slurm-injector,k8s-slurm-injector/jobid=%s", jobId),
 	})
 	if err != nil {
@@ -169,6 +178,49 @@ func (w watcher) deleteConfigMapOfJobId(jobId string) error {
 	}
 
 	return nil
+}
+
+func (w *watcher) updateNodeLabels() {
+	// Initialize client-set
+	clientset := client_set.GetClientSet()
+
+	// Get nodes
+	nodes, err := clientset.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		return
+	}
+
+	// Get node-status on slurm
+	nodeStatus := w.slurm.GetNodeStatus()
+	for _, status := range nodeStatus {
+		for _, node := range nodes.Items {
+			if status.Node == node.Name {
+				w.logger.Debugf("Updating labels of node %s", status.Node)
+				payload := []patchStringValue{
+					{
+						Op:    "replace",
+						Path:  "/metadata/labels/slurm-num-cpus-free",
+						Value: status.NumCPUsFree,
+					},
+					{
+						Op:    "replace",
+						Path:  "/metadata/labels/slurm-num-gpus-free",
+						Value: status.NumGPUsFree,
+					},
+					{
+						Op:    "replace",
+						Path:  "/metadata/labels/slurm-mem-free",
+						Value: status.MemFree,
+					},
+				}
+				payloadBytes, _ := json.Marshal(payload)
+				_, err := clientset.CoreV1().Nodes().Patch(context.TODO(), node.Name, types.JSONPatchType, payloadBytes, metav1.PatchOptions{})
+				if err != nil {
+					w.logger.Errorf("failed to label node %s: %s", node.Name, err)
+				}
+			}
+		}
+	}
 }
 
 func (w *watcher) routine() {
@@ -228,6 +280,8 @@ func (w *watcher) routine() {
 			}
 		}
 	}
+
+	w.updateNodeLabels()
 }
 
 func (w dummyWatcher) Watch(ctx context.Context) error {
