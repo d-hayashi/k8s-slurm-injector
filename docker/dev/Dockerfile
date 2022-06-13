@@ -1,28 +1,23 @@
-FROM golang:1.15
+FROM golang:1.17.5
 
-ARG GOLANGCI_LINT_VERSION="1.33.0"
+ARG GOLANGCI_LINT_VERSION="1.41.1"
+ARG MOCKERY_VERSION="2.8.0"
 ARG ostype=Linux
 
 RUN apt-get update && apt-get install -y \
     git \
     bash \
-    zip \
-    openssh-client
+    zip
 
-ENV GO111MODULE=off
 
 RUN wget https://github.com/golangci/golangci-lint/releases/download/v${GOLANGCI_LINT_VERSION}/golangci-lint-${GOLANGCI_LINT_VERSION}-linux-amd64.tar.gz && \
     tar zxvf golangci-lint-${GOLANGCI_LINT_VERSION}-linux-amd64.tar.gz --strip 1 -C /usr/local/bin/ && \
-    rm golangci-lint-${GOLANGCI_LINT_VERSION}-linux-amd64.tar.gz
-
-RUN \
-  go get -u github.com/cosmtrek/air && \
-  go build -o /go/bin/air github.com/cosmtrek/air && \
-  go get -u github.com/go-delve/delve/cmd/dlv && \
-  go build -o /go/bin/dlv github.com/go-delve/delve/cmd/dlv
-
-ENV GO111MODULE=on
-RUN go get -u github.com/vektra/mockery/...
+    rm golangci-lint-${GOLANGCI_LINT_VERSION}-linux-amd64.tar.gz && \
+    \
+    wget https://github.com/vektra/mockery/releases/download/v${MOCKERY_VERSION}/mockery_${MOCKERY_VERSION}_Linux_x86_64.tar.gz && \
+    tar zxvf mockery_${MOCKERY_VERSION}_Linux_x86_64.tar.gz -C /tmp && \
+    mv /tmp/mockery /usr/local/bin/ && \
+    rm mockery_${MOCKERY_VERSION}_Linux_x86_64.tar.gz
 
 # Create user.
 ARG uid=1000

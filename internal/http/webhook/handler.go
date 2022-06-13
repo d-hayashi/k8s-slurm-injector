@@ -23,8 +23,11 @@ type kubewebhookLogger struct {
 func (l kubewebhookLogger) WithValues(kv map[string]interface{}) kwhlog.Logger {
 	return kubewebhookLogger{Logger: l.Logger.WithKV(kv)}
 }
-func (l kubewebhookLogger) WithCtx(ctx context.Context) kwhlog.Logger {
+func (l kubewebhookLogger) WithCtxValues(ctx context.Context) kwhlog.Logger {
 	return l.WithValues(kwhlog.ValuesFromCtx(ctx))
+}
+func (l kubewebhookLogger) SetValuesOnCtx(parent context.Context, values map[string]interface{}) context.Context {
+	return kwhlog.CtxWithValues(parent, values)
 }
 
 // injectSidecar sets up the webhook handler for injecting sidecars for slurm using Kubewebhook library.
