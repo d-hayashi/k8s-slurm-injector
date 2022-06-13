@@ -12,6 +12,7 @@ import (
 	"github.com/d-hayashi/k8s-slurm-injector/internal/config_map"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/log"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/slurm_handler"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -161,7 +162,7 @@ func (w *watcher) fetchJobIdsOnKubernetes() error {
 						strings.Replace(objectName, "pod-", "", 1),
 						metav1.GetOptions{},
 					)
-					if _err == nil {
+					if _err == nil || !errors.IsNotFound(_err) {
 						jobIds = append(jobIds, jobId)
 					}
 				} else {
