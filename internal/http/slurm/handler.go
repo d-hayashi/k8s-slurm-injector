@@ -92,11 +92,10 @@ func (s SbatchHandler) prepareParams(jobInfo *sidecar.JobInformation) error {
 func (s SbatchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.handler.logger.Infof("sbatch")
 
-	var err error = nil
 	jobInfo := sidecar.NewJobInformation()
 
 	// Parse request and construct commands
-	err = s.parseQueryParams(r, jobInfo)
+	err := s.parseQueryParams(r, jobInfo)
 	if err == nil {
 		err = s.prepareParams(jobInfo)
 		if err != nil {
