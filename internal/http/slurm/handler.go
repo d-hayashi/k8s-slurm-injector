@@ -125,6 +125,8 @@ func (s SbatchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				Annotations: map[string]string{
 					"k8s-slurm-injector/last-applied-command": "sbatch",
 					"k8s-slurm-injector/jobid":                out,
+					"k8s-slurm-injector/namespace":            namespace,
+					"k8s-slurm-injector/object-name":          jobInfo.ObjectName,
 				},
 			},
 		}
@@ -267,7 +269,9 @@ func (s JobEnvToConfigMapHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 					"k8s-slurm-injector/jobid": jobid,
 				},
 				Annotations: map[string]string{
-					"k8s-slurm-injector/jobid": jobid,
+					"k8s-slurm-injector/jobid":       jobid,
+					"k8s-slurm-injector/namespace":   namespace,
+					"k8s-slurm-injector/object-name": objectName,
 				},
 			},
 			Immutable:  nil,
@@ -307,6 +311,8 @@ func (s JobEnvToConfigMapHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 				Annotations: map[string]string{
 					"k8s-slurm-injector/jobid":                      jobid,
 					"k8s-slurm-injector/last-applied-configuration": string(bytes),
+					"k8s-slurm-injector/namespace":                  namespace,
+					"k8s-slurm-injector/object-name":                objectName,
 				},
 			},
 			Immutable:  nil,
@@ -328,7 +334,7 @@ func (h handler) jobEnvToConfigMap() (http.Handler, error) {
 
 func (s JobStateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	jobid := r.URL.Query().Get("jobid")
-	s.handler.logger.Debugf("state jobid=%s", jobid)
+	// s.handler.logger.Debugf("state jobid=%s", jobid)
 
 	if jobid == "" {
 		w.WriteHeader(http.StatusBadRequest)
