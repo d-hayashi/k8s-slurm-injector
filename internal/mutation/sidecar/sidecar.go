@@ -816,6 +816,8 @@ func (s sidecarinjector) createConfigMap(obj metav1.Object, objectNamespace stri
 			},
 			Annotations: map[string]string{
 				"k8s-slurm-injector/last-applied-command": "inject",
+				"k8s-slurm-injector/namespace":            namespace,
+				"k8s-slurm-injector/object-name":          objectName,
 			},
 		},
 	}

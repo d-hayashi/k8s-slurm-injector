@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"strings"
 	"time"
 
 	"github.com/d-hayashi/k8s-slurm-injector/internal/client_set"
@@ -135,6 +136,9 @@ func (w *watcher) fetchJobIdsOnSlurm() error {
 }
 
 func (w *watcher) fetchJobIdsOnKubernetes() error {
+	// Initialize client-set
+	clientset := client_set.GetClientSet()
+
 	// Get job-ids on kubernetes
 	cms, err := w.configMapHandler.ListConfigMaps("", metav1.ListOptions{
 		LabelSelector: "app=k8s-slurm-injector",
@@ -147,7 +151,25 @@ func (w *watcher) fetchJobIdsOnKubernetes() error {
 	for _, cm := range cms.Items {
 		annotations := cm.GetAnnotations()
 		if jobId, exists := annotations["k8s-slurm-injector/jobid"]; exists {
-			jobIds = append(jobIds, jobId)
+			// Make sure that the corresponding pod exists
+			namespace, namespaceExists := annotations["k8s-slurm-injector/namespace"]
+			objectName, objectNameExists := annotations["k8s-slurm-injector/object-name"]
+			if namespaceExists && objectNameExists {
+				if strings.HasPrefix(objectName, "pod-") {
+					_, _err := clientset.CoreV1().Pods(namespace).Get(
+						context.TODO(),
+						strings.Replace(objectName, "pod-", "", 1),
+						metav1.GetOptions{},
+					)
+					if _err == nil {
+						jobIds = append(jobIds, jobId)
+					}
+				} else {
+					jobIds = append(jobIds, jobId)
+				}
+			} else {
+				jobIds = append(jobIds, jobId)
+			}
 		}
 	}
 
