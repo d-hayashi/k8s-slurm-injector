@@ -759,6 +759,16 @@ func (s sidecarinjector) mutateObject(obj metav1.Object, objectNamespace string)
 	annotations["k8s-slurm-injector/name"] = jobInfo.Name
 	obj.SetAnnotations(annotations)
 
+	// Modify labels
+	labels := obj.GetLabels()
+	if labels == nil {
+		labels = map[string]string{}
+	}
+	labels["k8s-slurm-injector/status"] = "injected"
+	labels["k8s-slurm-injector/namespace"] = jobInfo.Namespace
+	labels["k8s-slurm-injector/object-name"] = jobInfo.ObjectName
+	obj.SetLabels(labels)
+
 	return nil
 }
 

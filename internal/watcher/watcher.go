@@ -157,12 +157,14 @@ func (w *watcher) fetchJobIdsOnKubernetes() error {
 			objectName, objectNameExists := annotations["k8s-slurm-injector/object-name"]
 			if namespaceExists && objectNameExists {
 				if strings.HasPrefix(objectName, "pod-") {
-					_, _err := clientset.CoreV1().Pods(namespace).Get(
+					objs, _err := clientset.CoreV1().Pods(namespace).List(
 						context.TODO(),
-						strings.Replace(objectName, "pod-", "", 1),
-						metav1.GetOptions{},
+						metav1.ListOptions{LabelSelector: fmt.Sprintf("k8s-slurm-injector/object-name=%s", objectName)},
 					)
-					if _err == nil || !errors.IsNotFound(_err) {
+					if _err != nil {
+						w.logger.Debugf("err getting a pod with job-id '%s': %s", jobId, _err)
+					}
+					if len(objs.Items) > 0 || !errors.IsNotFound(_err) {
 						jobIds = append(jobIds, jobId)
 					}
 				} else {
