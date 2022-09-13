@@ -669,9 +669,6 @@ func (s sidecarinjector) mutateObject(obj metav1.Object, objectNamespace string)
 				"sleep 1; " +
 				"cat $(find /proc -mindepth 2 -maxdepth 2 -type f -name cgroup | grep -v /proc/${pid_sleep}/cgroup) " +
 				"| grep ${cid} > /dev/null || break; " +
-				"state=$(getState); " +
-				"[[ \"$state\" = \"COMPLETING\" ]] && break; " +
-				"[[ \"$state\" = \"CANCELLED\" ]] && break; " +
 				"done; " +
 				"for pid in $(cd /proc && echo [0-9]* | tr \" \" \"\\n\" | sort -n); " +
 				"do " +
