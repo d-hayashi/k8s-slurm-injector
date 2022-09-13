@@ -181,7 +181,7 @@ func (w *watcher) fetchJobIdsOnKubernetes() error {
 	return nil
 }
 
-func (w watcher) deleteConfigMapOfJobId(jobId string) error {
+func (w watcher) deleteKubernetesResourcesOfJobId(jobId string) error {
 	// Get job-ids on kubernetes
 	cms, err := w.configMapHandler.ListConfigMaps("", metav1.ListOptions{
 		LabelSelector: fmt.Sprintf("app=k8s-slurm-injector,k8s-slurm-injector/jobid=%s", jobId),
@@ -194,7 +194,42 @@ func (w watcher) deleteConfigMapOfJobId(jobId string) error {
 		return fmt.Errorf("could not find a config-map which corresponds to job-id: %s", jobId)
 	}
 
+	// Initialize client-set
+	clientset := client_set.GetClientSet()
+
 	for _, cm := range cms.Items {
+		// Get the corresponding object name and namespace
+		objectNamespace := ""
+		objectName := ""
+		for key, value := range cm.GetAnnotations() {
+			if key == "k8s-slurm-injector/namespace" {
+				objectNamespace = value
+			}
+			if key == "k8s-slurm-injector/object-name" {
+				objectName = value
+			}
+		}
+		if objectNamespace == "" || objectName == "" {
+			return fmt.Errorf("failed to get object information from config-map '%s'", cm.GetName())
+		}
+
+		// Delete the resources related to the config-map
+		if strings.HasPrefix(objectName, "pod-") {
+			// Check if the pod exist
+			podName := strings.Replace(objectName, "pod-", "", 1)
+			_, err := clientset.CoreV1().Pods(objectNamespace).Get(context.TODO(), podName, metav1.GetOptions{})
+			if err == nil {
+				w.logger.Debugf("deleting pod %s in namespace %s", podName, objectNamespace)
+				err = clientset.CoreV1().Pods(objectNamespace).Delete(context.TODO(), podName, metav1.DeleteOptions{})
+				if err != nil {
+					return err
+				}
+			}
+		} else {
+			return fmt.Errorf("cannot delete object (unsupported): %s", objectName)
+		}
+
+		// Delete the config-map
 		w.logger.Debugf("deleting config-map %s in namespace %s", cm.GetName(), cm.GetNamespace())
 		err = w.configMapHandler.DeleteConfigMap(cm.GetNamespace(), cm.GetName(), nil)
 		if err != nil {
@@ -280,9 +315,10 @@ func (w *watcher) routine() {
 				_, err := w.slurm.SCancel(jobIdOnSlurm)
 				if err != nil {
 					w.logger.Errorf("could not scancel job-id '%s': %s", jobIdOnSlurm, err.Error())
+				} else {
+					// Remove job-id from kill-candidates
+					delete(w.state.killCandidates, jobIdOnSlurm)
 				}
-				// Remove job-id from kill-candidates
-				delete(w.state.killCandidates, jobIdOnSlurm)
 			} else {
 				w.logger.Debugf("adding slurm job '%s' to kill-candidate", jobIdOnSlurm)
 				w.state.killCandidates[jobIdOnSlurm] = true
@@ -300,7 +336,7 @@ func (w *watcher) routine() {
 		if !isExists {
 			// Remove the corresponding config-map in case that the job-id does not exist on Slurm
 			w.logger.Infof("deleting config-map of job-id %s", jobIdOnKubernetes)
-			if err := w.deleteConfigMapOfJobId(jobIdOnKubernetes); err != nil {
+			if err := w.deleteKubernetesResourcesOfJobId(jobIdOnKubernetes); err != nil {
 				w.logger.Errorf("could not delete the corresponding config-map: %s", err.Error())
 			}
 		}
