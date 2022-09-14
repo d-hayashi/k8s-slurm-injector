@@ -217,12 +217,22 @@ func (w watcher) deleteKubernetesResourcesOfJobId(jobId string) error {
 		if strings.HasPrefix(objectName, "pod-") {
 			// Check if the pod exist
 			podName := strings.Replace(objectName, "pod-", "", 1)
-			_, err := clientset.CoreV1().Pods(objectNamespace).Get(context.TODO(), podName, metav1.GetOptions{})
+			pod, err := clientset.CoreV1().Pods(objectNamespace).Get(context.TODO(), podName, metav1.GetOptions{})
 			if err == nil {
-				w.logger.Debugf("deleting pod %s in namespace %s", podName, objectNamespace)
-				err = clientset.CoreV1().Pods(objectNamespace).Delete(context.TODO(), podName, metav1.DeleteOptions{})
-				if err != nil {
-					return err
+				// Check the condition of the pod
+				isReady := "Unknown"
+				for _, condition := range pod.Status.Conditions {
+					if condition.Type == "Ready" {
+						isReady = string(condition.Status)
+					}
+				}
+				// If the pod is running with status "Ready", delete the pod
+				if isReady == "True" && pod.Status.Phase == "Running" {
+					w.logger.Debugf("deleting pod %s in namespace %s", podName, objectNamespace)
+					err = clientset.CoreV1().Pods(objectNamespace).Delete(context.TODO(), podName, metav1.DeleteOptions{})
+					if err != nil {
+						return err
+					}
 				}
 			}
 		} else {
