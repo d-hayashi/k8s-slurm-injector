@@ -642,14 +642,19 @@ func (s sidecarinjector) mutateObject(obj metav1.Object, objectNamespace string)
 				"getState() { curl -s \"${stateURL}&jobid=${jobid}\"; }; " +
 				"scancel() { curl -s \"${scancelURL}&jobid=${jobid}\"; }; " +
 				"trap 'scancel || exit 0' SIGHUP SIGINT SIGQUIT SIGTERM ; " +
-				"touch /k8s-slurm-injector/cids_all;" +
-				"cid_self=$(cat /proc/self/cgroup | grep cpuset: | awk '{n=split($1,A,\"/\"); print A[n]}'); " +
+				"touch /k8s-slurm-injector/cids_all; " +
+				"is_containerd=false; " +
+				"cat /proc/self/cgroup | grep -q containerd && is_containerd=true; " +
+				"${is_containerd} && cid_self=$(cat /proc/self/cgroup | grep cpuset: | awk '{n=split($1,A,\"cri-containerd\"); print substr(A[n],2)}'); " +
+				"! ${is_containerd} && cid_self=$(cat /proc/self/cgroup | grep cpuset: | awk '{n=split($1,A,\"/\"); print A[n]}'); " +
 				recognizedSidecarContainerCheck +
 				"count=0; " +
 				"while [[ $count -lt 3 ]]; " +
 				"do " +
-				"cat /proc/*/cgroup | awk '{n=split($1,A,\"/\"); print A[n]}' " +
-				"| sort | uniq | awk 'length($0)==64{print $0}' >> /k8s-slurm-injector/cids_all;" +
+				"${is_containerd} && cat /proc/*/cgroup | awk '{n=split($1,A,\"cri-containerd\"); print substr(A[n],2)}' " +
+				"| sort | uniq | awk 'length($0)>=64{print $0}' >> /k8s-slurm-injector/cids_all; " +
+				"! ${is_containerd} && cat /proc/*/cgroup | awk '{n=split($1,A,\"/\"); print A[n]}' " +
+				"| sort | uniq | awk 'length($0)==64{print $0}' >> /k8s-slurm-injector/cids_all; " +
 				"sleep 1; " +
 				"count=$((count+1)); " +
 				"done; " +
