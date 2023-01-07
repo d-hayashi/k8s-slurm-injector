@@ -6,6 +6,12 @@ import (
 
 // routes wires the routes to handlers on a specific router.
 func (h handler) routes(router *http.ServeMux) error {
+	isInjectable, err := h.isInjectable()
+	if err != nil {
+		return err
+	}
+	router.Handle("/slurm/isinjectable", isInjectable)
+
 	sbatch, err := h.sbatch()
 	if err != nil {
 		return err

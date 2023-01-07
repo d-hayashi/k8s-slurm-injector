@@ -80,7 +80,7 @@ func runApp() error {
 	}
 
 	// Initialize Sidecar-injector
-	sidecarInjector, err := sidecar.NewSidecarInjector(sshHandler, configMapHandler, targetNamespaces)
+	sidecarInjector, err := sidecar.NewSidecarInjector(sshHandler, configMapHandler, targetNamespaces, logger)
 	if err != nil {
 		return fmt.Errorf("failed to initialize sidecar injector: %w", err)
 	}

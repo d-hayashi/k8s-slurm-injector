@@ -10,6 +10,7 @@ import (
 
 	"github.com/d-hayashi/k8s-slurm-injector/internal/client_set"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/config_map"
+	"github.com/d-hayashi/k8s-slurm-injector/internal/log"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/ssh_handler"
 	batchv1 "k8s.io/api/batch/v1"
 	batchv1beta1 "k8s.io/api/batch/v1beta1"
@@ -30,9 +31,15 @@ func NewSidecarInjector(
 	sshHandler ssh_handler.SSHHandler,
 	configMapHandler config_map.ConfigMapHandler,
 	targetNamespaces []string,
+	logger log.Logger,
 ) (SidecarInjector, error) {
 	var err error
-	injector := sidecarinjector{ssh: sshHandler, configMapHandler: configMapHandler, TargetNamespaces: targetNamespaces}
+	injector := sidecarinjector{
+		ssh:              sshHandler,
+		configMapHandler: configMapHandler,
+		TargetNamespaces: targetNamespaces,
+		logger:           logger,
+	}
 	injector.Nodes, err = injector.fetchSlurmNodes()
 	if err == nil {
 		injector.Partitions, err = injector.fetchSlurmPartitions()
@@ -47,6 +54,7 @@ type sidecarinjector struct {
 	Nodes            []string
 	Partitions       []string
 	TargetNamespaces []string
+	logger           log.Logger
 }
 
 type JobInformation struct {
@@ -245,17 +253,17 @@ func getObjectName(obj metav1.Object) (string, error) {
 	return name, nil
 }
 
-func (s sidecarinjector) validate(obj metav1.Object, objectNamespace string) error {
+func (s sidecarinjector) isInjectable(obj metav1.Object, objectNamespace string) (bool, error) {
 	var err error
 	var jobInfo JobInformation
 	err = s.getJobInformation(obj, &jobInfo, objectNamespace)
 
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	if jobInfo.NodeSpecificationMode != "manual" {
-		return nil
+		return true, nil
 	}
 
 	isNodeExists := false
@@ -265,7 +273,8 @@ func (s sidecarinjector) validate(obj metav1.Object, objectNamespace string) err
 		}
 	}
 	if !isNodeExists {
-		return fmt.Errorf("unrecognized node: %s", jobInfo.Node)
+		s.logger.Warningf("skipped injection as node %s is not found in Slurm", jobInfo.Node)
+		return false, nil
 	}
 
 	isPartitionExists := false
@@ -275,10 +284,10 @@ func (s sidecarinjector) validate(obj metav1.Object, objectNamespace string) err
 		}
 	}
 	if !isPartitionExists {
-		return fmt.Errorf("unrecognized partition: %s", jobInfo.Partition)
+		return false, fmt.Errorf("unrecognized partition: %s", jobInfo.Partition)
 	}
 
-	return nil
+	return true, nil
 }
 
 func (s sidecarinjector) getSlurmWebhookURL() string {
@@ -481,6 +490,7 @@ func (s sidecarinjector) mutateObject(obj metav1.Object, objectNamespace string)
 	if err != nil {
 		return fmt.Errorf("failed to get job-information: %s", err.Error())
 	}
+	isInjectableURL := s.constructURL(slurmWebhookURL, jobInfo, "isinjectable")
 	sbatchURL := s.constructURL(slurmWebhookURL, jobInfo, "sbatch")
 	stateURL := s.constructURL(slurmWebhookURL, jobInfo, "state")
 	envURL := s.constructURL(slurmWebhookURL, jobInfo, "envtoconfigmap")
@@ -508,6 +518,7 @@ func (s sidecarinjector) mutateObject(obj metav1.Object, objectNamespace string)
 		},
 		Args: []string{
 			"set -x; " +
+				fmt.Sprintf("export isInjectableURL=\"%s\" && ", isInjectableURL) +
 				fmt.Sprintf("export stateURL=\"%s\" && ", stateURL) +
 				fmt.Sprintf("export sbatchURL=\"%s\" && ", sbatchURL) +
 				fmt.Sprintf("export scancelURL=\"%s\"; ", scancelURL) +
@@ -515,17 +526,20 @@ func (s sidecarinjector) mutateObject(obj metav1.Object, objectNamespace string)
 				"if [[ ${nodeName} = \"::K8S_SLURM_INJECTOR_NODE::\" ]]; " +
 				"then " +
 				"sbatchURL=$(echo ${sbatchURL} | sed \"s/::K8S_SLURM_INJECTOR_NODE::/${K8S_SLURM_INJECTOR_NODE}/\"); " +
+				"isInjectableURL=$(echo ${isInjectableURL} | sed \"s/::K8S_SLURM_INJECTOR_NODE::/${K8S_SLURM_INJECTOR_NODE}/\"); " +
 				"fi; " +
-				"export jobid=$(curl -s ${sbatchURL}) && " +
+				"touch /k8s-slurm-injector/jobid; " +
+				"! curl -fs ${isInjectableURL} && echo 'Skipping slurm injection' && echo 'none' > /k8s-slurm-injector/jobid && exit 0; " +
+				"export jobid=$(curl -fs ${sbatchURL}) && " +
 				"echo \"Job ID: ${jobid}\" && " +
 				"echo ${jobid} > /k8s-slurm-injector/jobid ; " +
-				"scancel() { curl -s \"${scancelURL}&jobid=${jobid}\"; }; " +
+				"scancel() { curl -fs \"${scancelURL}&jobid=${jobid}\"; }; " +
 				"trap 'scancel || exit 0' SIGHUP SIGINT SIGQUIT SIGTERM ; " +
 				"while true; " +
 				"do " +
 				"sleep 1; " +
 				"echo \"$jobid\" | egrep -q '^[0-9]+$' || exit 1; " +
-				"state=$(curl -s \"${stateURL}&jobid=${jobid}\"); " +
+				"state=$(curl -fs \"${stateURL}&jobid=${jobid}\"); " +
 				"[[ \"$state\" = \"PENDING\" ]] && continue; " +
 				"[[ \"$state\" = \"RUNNING\" ]] && break; " +
 				"[[ \"$state\" = \"CANCELLED\" ]] && exit 1; " +
@@ -550,11 +564,12 @@ func (s sidecarinjector) mutateObject(obj metav1.Object, objectNamespace string)
 				fmt.Sprintf("export envURL=\"%s\"; ", envURL) +
 				fmt.Sprintf("export scancelURL=\"%s\"; ", scancelURL) +
 				"export jobid=$(cat /k8s-slurm-injector/jobid); " +
-				"scancel() { curl -s \"${scancelURL}&jobid=${jobid}\"; }; " +
+				"scancel() { curl -fs \"${scancelURL}&jobid=${jobid}\"; }; " +
 				"[[ $jobid = \"\" ]] && echo 'Failed to get job-id' >&2 && exit 1; " +
 				"[[ $jobid = \"error\" ]] && echo 'Failed to get job-id' >&2 && exit 1; " +
+				"[[ $jobid = \"none\" ]] && echo 'not a slurm node' && exit 0; " +
 				"trap 'scancel || exit 0' SIGHUP SIGINT SIGQUIT SIGTERM ; " +
-				"curl -s \"${envURL}&jobid=${jobid}\" > /k8s-slurm-injector/env || scancel",
+				"curl -fs \"${envURL}&jobid=${jobid}\" > /k8s-slurm-injector/env || scancel",
 		},
 		ImagePullPolicy: "IfNotPresent",
 		VolumeMounts: []corev1.VolumeMount{
@@ -639,8 +654,9 @@ func (s sidecarinjector) mutateObject(obj metav1.Object, objectNamespace string)
 				"jobid=$(cat /k8s-slurm-injector/jobid); " +
 				"[[ $jobid = \"\" ]] && echo 'Failed to get job-id' >&2 && exit 1; " +
 				"[[ $jobid = \"error\" ]] && echo 'Failed to get job-id' >&2 && exit 1; " +
-				"getState() { curl -s \"${stateURL}&jobid=${jobid}\"; }; " +
-				"scancel() { curl -s \"${scancelURL}&jobid=${jobid}\"; }; " +
+				"[[ $jobid = \"none\" ]] && trap 'exit 0' SIGHUP SIGINT SIGQUIT SIGTERM && while true; do sleep 1; done; " +
+				"getState() { curl -fs \"${stateURL}&jobid=${jobid}\"; }; " +
+				"scancel() { curl -fs \"${scancelURL}&jobid=${jobid}\"; }; " +
 				"trap 'scancel || exit 0' SIGHUP SIGINT SIGQUIT SIGTERM ; " +
 				"touch /k8s-slurm-injector/cids_all; " +
 				"is_containerd=false; " +
@@ -713,7 +729,7 @@ func (s sidecarinjector) mutateObject(obj metav1.Object, objectNamespace string)
 					"/bin/sh",
 					"-c",
 					fmt.Sprintf(
-						"jobid=$(cat /k8s-slurm-injector/jobid); curl -s \"%s&jobid=${jobid}\"", scancelURL,
+						"jobid=$(cat /k8s-slurm-injector/jobid); curl -fs \"%s&jobid=${jobid}\"", scancelURL,
 					),
 				}},
 			},
@@ -889,10 +905,13 @@ func (s sidecarinjector) Inject(_ context.Context, obj metav1.Object) (string, e
 		return "", nil
 	}
 
-	// Validate object
-	err = s.validate(obj, objectNamespace)
+	// Check if Slurm injectable
+	isInjectable, err := s.isInjectable(obj, objectNamespace)
 	if err != nil {
 		return "", fmt.Errorf("failed to mutate object: %s", err.Error())
+	}
+	if !isInjectable {
+		return "", nil
 	}
 
 	// Mutate object

@@ -14,6 +14,10 @@ import (
 	"k8s.io/apimachinery/pkg/util/json"
 )
 
+type IsInjectableHandler struct {
+	handler handler
+}
+
 type SbatchHandler struct {
 	handler handler
 }
@@ -34,7 +38,7 @@ type ScancelHandler struct {
 	handler handler
 }
 
-func (s SbatchHandler) parseQueryParams(r *http.Request, jobInfo *sidecar.JobInformation) error {
+func parseQueryParams(r *http.Request, jobInfo *sidecar.JobInformation) error {
 	regString := regexp.MustCompile(`[^0-9A-Za-z_#:-]`)
 	regDecimal := regexp.MustCompile(`[^0-9]`)
 	jobInfo.Namespace = regString.ReplaceAllString(r.URL.Query().Get("namespace"), "")
@@ -89,13 +93,52 @@ func (s SbatchHandler) prepareParams(jobInfo *sidecar.JobInformation) error {
 	return nil
 }
 
+func (s IsInjectableHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.handler.logger.Infof("isInjectable")
+
+	jobInfo := sidecar.NewJobInformation()
+	isInjectable := true
+
+	// Parse request and check if the node is Slurm injectable
+	err := parseQueryParams(r, jobInfo)
+	if err == nil {
+		// Check nodes
+		isNodeExists := false
+		for _, nodeInfo := range s.handler.slurmHandler.GetNodeInfo() {
+			if nodeInfo.Node == jobInfo.Node {
+				isNodeExists = true
+			}
+		}
+		if !isNodeExists {
+			isInjectable = false
+		}
+	}
+
+	// Write to respond
+	if err == nil {
+		if isInjectable {
+			w.WriteHeader(http.StatusOK)
+		} else {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			_, _ = fmt.Fprintf(w, "slurm job is not injectable as node %s does not exist", jobInfo.Node)
+		}
+	} else {
+		w.WriteHeader(http.StatusInternalServerError)
+		s.handler.logger.Errorf("failed to check if slurm job is injectable: %s", err.Error())
+	}
+}
+
+func (h handler) isInjectable() (http.Handler, error) {
+	return IsInjectableHandler{h}, nil
+}
+
 func (s SbatchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.handler.logger.Infof("sbatch")
 
 	jobInfo := sidecar.NewJobInformation()
 
 	// Parse request and construct commands
-	err := s.parseQueryParams(r, jobInfo)
+	err := parseQueryParams(r, jobInfo)
 	if err == nil {
 		err = s.prepareParams(jobInfo)
 		if err != nil {
@@ -171,7 +214,8 @@ func (h handler) sbatch() (http.Handler, error) {
 }
 
 func (s JobEnvHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	jobid := r.URL.Query().Get("jobid")
+	regDecimal := regexp.MustCompile(`[^0-9]`)
+	jobid := regDecimal.ReplaceAllString(r.URL.Query().Get("jobid"), "")
 	s.handler.logger.Infof("env jobid=%s", jobid)
 
 	if jobid == "" {
@@ -196,9 +240,11 @@ func (h handler) jobEnv() (http.Handler, error) {
 }
 
 func (s JobEnvToConfigMapHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	jobid := r.URL.Query().Get("jobid")
-	namespace := r.URL.Query().Get("namespace")
-	objectName := r.URL.Query().Get("objectname")
+	regString := regexp.MustCompile(`[^0-9A-Za-z_#:-]`)
+	regDecimal := regexp.MustCompile(`[^0-9]`)
+	jobid := regDecimal.ReplaceAllString(r.URL.Query().Get("jobid"), "")
+	namespace := regString.ReplaceAllString(r.URL.Query().Get("namespace"), "")
+	objectName := regString.ReplaceAllString(r.URL.Query().Get("objectname"), "")
 	configMapName := config_map.ConfigMapNameFromObjectName(objectName)
 	s.handler.logger.Infof("envToConfigMap jobid=%s, configmap=%s, namespace=%s", jobid, configMapName, namespace)
 
@@ -333,7 +379,8 @@ func (h handler) jobEnvToConfigMap() (http.Handler, error) {
 }
 
 func (s JobStateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	jobid := r.URL.Query().Get("jobid")
+	regDecimal := regexp.MustCompile(`[^0-9]`)
+	jobid := regDecimal.ReplaceAllString(r.URL.Query().Get("jobid"), "")
 	// s.handler.logger.Debugf("state jobid=%s", jobid)
 
 	if jobid == "" {
@@ -358,7 +405,8 @@ func (h handler) jobState() (http.Handler, error) {
 }
 
 func (s ScancelHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	jobid := r.URL.Query().Get("jobid")
+	regDecimal := regexp.MustCompile(`[^0-9]`)
+	jobid := regDecimal.ReplaceAllString(r.URL.Query().Get("jobid"), "")
 	s.handler.logger.Infof("scancel jobid=%s", jobid)
 
 	if jobid == "" {
