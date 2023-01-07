@@ -72,8 +72,7 @@ func TestSbatchHandler_parseQueryParams(t *testing.T) {
 
 			// Parse query parameters
 			jobInfo := sidecar.NewJobInformation()
-			handler := SbatchHandler{}
-			err := handler.parseQueryParams(req, jobInfo)
+			err := parseQueryParams(req, jobInfo)
 			require.Empty(err)
 
 			// Check parsing results

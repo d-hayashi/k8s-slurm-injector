@@ -490,6 +490,7 @@ func (s sidecarinjector) mutateObject(obj metav1.Object, objectNamespace string)
 	if err != nil {
 		return fmt.Errorf("failed to get job-information: %s", err.Error())
 	}
+	isInjectableURL := s.constructURL(slurmWebhookURL, jobInfo, "isinjectable")
 	sbatchURL := s.constructURL(slurmWebhookURL, jobInfo, "sbatch")
 	stateURL := s.constructURL(slurmWebhookURL, jobInfo, "state")
 	envURL := s.constructURL(slurmWebhookURL, jobInfo, "envtoconfigmap")
@@ -517,6 +518,7 @@ func (s sidecarinjector) mutateObject(obj metav1.Object, objectNamespace string)
 		},
 		Args: []string{
 			"set -x; " +
+				fmt.Sprintf("export isInjectableURL=\"%s\" && ", isInjectableURL) +
 				fmt.Sprintf("export stateURL=\"%s\" && ", stateURL) +
 				fmt.Sprintf("export sbatchURL=\"%s\" && ", sbatchURL) +
 				fmt.Sprintf("export scancelURL=\"%s\"; ", scancelURL) +
@@ -524,17 +526,20 @@ func (s sidecarinjector) mutateObject(obj metav1.Object, objectNamespace string)
 				"if [[ ${nodeName} = \"::K8S_SLURM_INJECTOR_NODE::\" ]]; " +
 				"then " +
 				"sbatchURL=$(echo ${sbatchURL} | sed \"s/::K8S_SLURM_INJECTOR_NODE::/${K8S_SLURM_INJECTOR_NODE}/\"); " +
+				"isInjectableURL=$(echo ${isInjectableURL} | sed \"s/::K8S_SLURM_INJECTOR_NODE::/${K8S_SLURM_INJECTOR_NODE}/\"); " +
 				"fi; " +
-				"export jobid=$(curl -s ${sbatchURL}) && " +
+				"touch /k8s-slurm-injector/jobid; " +
+				"! curl -fs ${isInjectableURL} && echo 'Skipping slurm injection' && echo 'none' > /k8s-slurm-injector/jobid && exit 0; " +
+				"export jobid=$(curl -fs ${sbatchURL}) && " +
 				"echo \"Job ID: ${jobid}\" && " +
 				"echo ${jobid} > /k8s-slurm-injector/jobid ; " +
-				"scancel() { curl -s \"${scancelURL}&jobid=${jobid}\"; }; " +
+				"scancel() { curl -fs \"${scancelURL}&jobid=${jobid}\"; }; " +
 				"trap 'scancel || exit 0' SIGHUP SIGINT SIGQUIT SIGTERM ; " +
 				"while true; " +
 				"do " +
 				"sleep 1; " +
 				"echo \"$jobid\" | egrep -q '^[0-9]+$' || exit 1; " +
-				"state=$(curl -s \"${stateURL}&jobid=${jobid}\"); " +
+				"state=$(curl -fs \"${stateURL}&jobid=${jobid}\"); " +
 				"[[ \"$state\" = \"PENDING\" ]] && continue; " +
 				"[[ \"$state\" = \"RUNNING\" ]] && break; " +
 				"[[ \"$state\" = \"CANCELLED\" ]] && exit 1; " +
@@ -559,11 +564,12 @@ func (s sidecarinjector) mutateObject(obj metav1.Object, objectNamespace string)
 				fmt.Sprintf("export envURL=\"%s\"; ", envURL) +
 				fmt.Sprintf("export scancelURL=\"%s\"; ", scancelURL) +
 				"export jobid=$(cat /k8s-slurm-injector/jobid); " +
-				"scancel() { curl -s \"${scancelURL}&jobid=${jobid}\"; }; " +
+				"scancel() { curl -fs \"${scancelURL}&jobid=${jobid}\"; }; " +
 				"[[ $jobid = \"\" ]] && echo 'Failed to get job-id' >&2 && exit 1; " +
 				"[[ $jobid = \"error\" ]] && echo 'Failed to get job-id' >&2 && exit 1; " +
+				"[[ $jobid = \"none\" ]] && echo 'not a slurm node' && exit 0; " +
 				"trap 'scancel || exit 0' SIGHUP SIGINT SIGQUIT SIGTERM ; " +
-				"curl -s \"${envURL}&jobid=${jobid}\" > /k8s-slurm-injector/env || scancel",
+				"curl -fs \"${envURL}&jobid=${jobid}\" > /k8s-slurm-injector/env || scancel",
 		},
 		ImagePullPolicy: "IfNotPresent",
 		VolumeMounts: []corev1.VolumeMount{
@@ -648,8 +654,9 @@ func (s sidecarinjector) mutateObject(obj metav1.Object, objectNamespace string)
 				"jobid=$(cat /k8s-slurm-injector/jobid); " +
 				"[[ $jobid = \"\" ]] && echo 'Failed to get job-id' >&2 && exit 1; " +
 				"[[ $jobid = \"error\" ]] && echo 'Failed to get job-id' >&2 && exit 1; " +
-				"getState() { curl -s \"${stateURL}&jobid=${jobid}\"; }; " +
-				"scancel() { curl -s \"${scancelURL}&jobid=${jobid}\"; }; " +
+				"[[ $jobid = \"none\" ]] && trap 'exit 0' SIGHUP SIGINT SIGQUIT SIGTERM && while true; do sleep 1; done; " +
+				"getState() { curl -fs \"${stateURL}&jobid=${jobid}\"; }; " +
+				"scancel() { curl -fs \"${scancelURL}&jobid=${jobid}\"; }; " +
 				"trap 'scancel || exit 0' SIGHUP SIGINT SIGQUIT SIGTERM ; " +
 				"touch /k8s-slurm-injector/cids_all; " +
 				"is_containerd=false; " +
@@ -722,7 +729,7 @@ func (s sidecarinjector) mutateObject(obj metav1.Object, objectNamespace string)
 					"/bin/sh",
 					"-c",
 					fmt.Sprintf(
-						"jobid=$(cat /k8s-slurm-injector/jobid); curl -s \"%s&jobid=${jobid}\"", scancelURL,
+						"jobid=$(cat /k8s-slurm-injector/jobid); curl -fs \"%s&jobid=${jobid}\"", scancelURL,
 					),
 				}},
 			},
