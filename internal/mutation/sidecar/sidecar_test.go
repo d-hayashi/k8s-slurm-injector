@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	batchv1 "k8s.io/api/batch/v1"
@@ -13,6 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/d-hayashi/k8s-slurm-injector/internal/config_map"
+	"github.com/d-hayashi/k8s-slurm-injector/internal/log"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/mutation/sidecar"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/ssh_handler"
 )
@@ -364,7 +366,42 @@ func TestSidecarinjector_Inject(t *testing.T) {
 				},
 			},
 		},
+
+		"Having a pod with unregistered node, the labels should not be mutated.": {
+			obj: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test",
+					Namespace: "default",
+					Labels: map[string]string{
+						"test1":                        "value1",
+						"test2":                        "value2",
+						"k8s-slurm-injector/injection": "enabled",
+						"k8s-slurm-injector/node-specification-mode": "manual",
+						"k8s-slurm-injector/node":                    "unregistered-node",
+					},
+				},
+			},
+			expObj: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test",
+					Namespace: "default",
+					Labels: map[string]string{
+						"test1":                        "value1",
+						"test2":                        "value2",
+						"k8s-slurm-injector/injection": "enabled",
+						"k8s-slurm-injector/node-specification-mode": "manual",
+						"k8s-slurm-injector/node":                    "unregistered-node",
+					},
+				},
+			},
+		},
 	}
+
+	// Set up logger.
+	logrusLog := logrus.New()
+	logrusLogEntry := logrus.NewEntry(logrusLog).WithField("app", "k8s-slurm-injector")
+	logrusLogEntry.Logger.SetLevel(logrus.DebugLevel)
+	logger := log.NewLogrus(logrusLogEntry).WithKV(log.KV{"version": "test"})
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -374,7 +411,7 @@ func TestSidecarinjector_Inject(t *testing.T) {
 			sshHandler, _ := ssh_handler.Dummy()
 			configMapHandler, _ := config_map.NewDummyConfigMapHandler()
 			targetNamespaces := []string{"target-.*"}
-			injector, _ := sidecar.NewSidecarInjector(sshHandler, configMapHandler, targetNamespaces)
+			injector, _ := sidecar.NewSidecarInjector(sshHandler, configMapHandler, targetNamespaces, logger)
 			injector.SetNodes([]string{"node1"})
 
 			_, err := injector.Inject(context.TODO(), test.obj)

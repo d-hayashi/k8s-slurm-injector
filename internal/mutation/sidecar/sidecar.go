@@ -10,6 +10,7 @@ import (
 
 	"github.com/d-hayashi/k8s-slurm-injector/internal/client_set"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/config_map"
+	"github.com/d-hayashi/k8s-slurm-injector/internal/log"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/ssh_handler"
 	batchv1 "k8s.io/api/batch/v1"
 	batchv1beta1 "k8s.io/api/batch/v1beta1"
@@ -30,9 +31,15 @@ func NewSidecarInjector(
 	sshHandler ssh_handler.SSHHandler,
 	configMapHandler config_map.ConfigMapHandler,
 	targetNamespaces []string,
+	logger log.Logger,
 ) (SidecarInjector, error) {
 	var err error
-	injector := sidecarinjector{ssh: sshHandler, configMapHandler: configMapHandler, TargetNamespaces: targetNamespaces}
+	injector := sidecarinjector{
+		ssh:              sshHandler,
+		configMapHandler: configMapHandler,
+		TargetNamespaces: targetNamespaces,
+		logger:           logger,
+	}
 	injector.Nodes, err = injector.fetchSlurmNodes()
 	if err == nil {
 		injector.Partitions, err = injector.fetchSlurmPartitions()
@@ -47,6 +54,7 @@ type sidecarinjector struct {
 	Nodes            []string
 	Partitions       []string
 	TargetNamespaces []string
+	logger           log.Logger
 }
 
 type JobInformation struct {
@@ -245,17 +253,17 @@ func getObjectName(obj metav1.Object) (string, error) {
 	return name, nil
 }
 
-func (s sidecarinjector) validate(obj metav1.Object, objectNamespace string) error {
+func (s sidecarinjector) isInjectable(obj metav1.Object, objectNamespace string) (bool, error) {
 	var err error
 	var jobInfo JobInformation
 	err = s.getJobInformation(obj, &jobInfo, objectNamespace)
 
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	if jobInfo.NodeSpecificationMode != "manual" {
-		return nil
+		return true, nil
 	}
 
 	isNodeExists := false
@@ -265,7 +273,8 @@ func (s sidecarinjector) validate(obj metav1.Object, objectNamespace string) err
 		}
 	}
 	if !isNodeExists {
-		return fmt.Errorf("unrecognized node: %s", jobInfo.Node)
+		s.logger.Warningf("skipped injection as node %s is not found in Slurm", jobInfo.Node)
+		return false, nil
 	}
 
 	isPartitionExists := false
@@ -275,10 +284,10 @@ func (s sidecarinjector) validate(obj metav1.Object, objectNamespace string) err
 		}
 	}
 	if !isPartitionExists {
-		return fmt.Errorf("unrecognized partition: %s", jobInfo.Partition)
+		return false, fmt.Errorf("unrecognized partition: %s", jobInfo.Partition)
 	}
 
-	return nil
+	return true, nil
 }
 
 func (s sidecarinjector) getSlurmWebhookURL() string {
@@ -889,10 +898,13 @@ func (s sidecarinjector) Inject(_ context.Context, obj metav1.Object) (string, e
 		return "", nil
 	}
 
-	// Validate object
-	err = s.validate(obj, objectNamespace)
+	// Check if Slurm injectable
+	isInjectable, err := s.isInjectable(obj, objectNamespace)
 	if err != nil {
 		return "", fmt.Errorf("failed to mutate object: %s", err.Error())
+	}
+	if !isInjectable {
+		return "", nil
 	}
 
 	// Mutate object
