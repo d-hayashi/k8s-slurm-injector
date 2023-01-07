@@ -120,7 +120,7 @@ func (s IsInjectableHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		} else {
 			w.WriteHeader(http.StatusMethodNotAllowed)
-			_, _ = fmt.Fprint(w, fmt.Sprintf("slurm job is not injectable as node %s does not exist", jobInfo.Node))
+			_, _ = fmt.Fprintf(w, "slurm job is not injectable as node %s does not exist", jobInfo.Node)
 		}
 	} else {
 		w.WriteHeader(http.StatusInternalServerError)
