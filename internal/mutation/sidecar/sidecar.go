@@ -692,12 +692,6 @@ func (s sidecarinjector) mutateObject(obj metav1.Object, objectNamespace string)
 				"cat $(find /proc -mindepth 2 -maxdepth 2 -type f -name cgroup | grep -v /proc/${pid_sleep}/cgroup) 2>/dev/null" +
 				"| grep ${cid} > /dev/null || break; " +
 				"done; " +
-				"for pid in $(cd /proc && echo [0-9]* | tr \" \" \"\\n\" | sort -n); " +
-				"do " +
-				"[[ $pid -eq $pid_sleep ]] && continue; " +
-				"cat /proc/${pid}/cgroup | grep ${cid} >/dev/null && kill -9 ${pid} " +
-				"&& echo \"Process ${pid} has been killed by slurm.\" >&2; " +
-				"done; " +
 				"done; " +
 				"echo 'Terminating Istio-pilot if exists'; " +
 				"curl -fsI -X POST http://localhost:15020/quitquitquit; " +
