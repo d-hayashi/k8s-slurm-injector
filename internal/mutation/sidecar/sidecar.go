@@ -677,7 +677,8 @@ func (s sidecarinjector) mutateObject(obj metav1.Object, objectNamespace string)
 				"cat /k8s-slurm-injector/cids_all | sort | uniq | grep -v ${cid_self} > /k8s-slurm-injector/cids; " +
 				"cids=$(cat /k8s-slurm-injector/cids);" +
 				"[[ ! -n \"$cids\" ]] && (echo 'Failed to get container_id' >&2; scancel) && exit 1; " +
-				"pid_sleep=$(ps aux | grep /pause | grep root | head -n1 | awk '{print $1}'); " +
+				"pid_sleep=$(ps aux | awk 'NR==1{for(i=1;i<=NF;i++){if($i==\"PID\")pid=i;if($i==\"COMMAND\")command=i}}($command==\"/pause\"){print $pid}'); " +
+				"[[ ! -n \"${pid_sleep}\" ]] && (echo 'Failed to get PID of pause process' >&2; scancel) && exit 1; " +
 				"while [[ -n \"$cids\" ]]; " +
 				"do " +
 				"cid=$(cat /k8s-slurm-injector/cids | head -n1); " +
@@ -688,7 +689,7 @@ func (s sidecarinjector) mutateObject(obj metav1.Object, objectNamespace string)
 				"while true; " +
 				"do " +
 				"sleep 1; " +
-				"cat $(find /proc -mindepth 2 -maxdepth 2 -type f -name cgroup | grep -v /proc/${pid_sleep}/cgroup) " +
+				"cat $(find /proc -mindepth 2 -maxdepth 2 -type f -name cgroup | grep -v /proc/${pid_sleep}/cgroup) 2>/dev/null" +
 				"| grep ${cid} > /dev/null || break; " +
 				"done; " +
 				"for pid in $(cd /proc && echo [0-9]* | tr \" \" \"\\n\" | sort -n); " +
