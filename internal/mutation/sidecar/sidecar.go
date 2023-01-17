@@ -718,17 +718,6 @@ func (s sidecarinjector) mutateObject(obj metav1.Object, objectNamespace string)
 				MountPath: "/k8s-slurm-injector",
 			},
 		},
-		Lifecycle: &corev1.Lifecycle{
-			PreStop: &corev1.Handler{
-				Exec: &corev1.ExecAction{Command: []string{
-					"/bin/sh",
-					"-c",
-					fmt.Sprintf(
-						"jobid=$(cat /k8s-slurm-injector/jobid); curl -fs \"%s&jobid=${jobid}\"", scancelURL,
-					),
-				}},
-			},
-		},
 	}
 	podSpec.Containers = append(podSpec.Containers, sidecar)
 
