@@ -537,10 +537,10 @@ func (s sidecarinjector) mutateObject(obj metav1.Object, objectNamespace string)
 				"trap 'scancel || exit 0' SIGHUP SIGINT SIGQUIT SIGTERM ; " +
 				"while true; " +
 				"do " +
-				"sleep 1; " +
+				"sleep 5; " +
 				"echo \"$jobid\" | egrep -q '^[0-9]+$' || exit 1; " +
 				"state=$(curl -fs \"${stateURL}&jobid=${jobid}\"); " +
-				"[[ \"$state\" = \"PENDING\" ]] && continue; " +
+				"[[ \"$state\" = \"PENDING\" ]] && sleep 10 && continue; " +
 				"[[ \"$state\" = \"RUNNING\" ]] && break; " +
 				"[[ \"$state\" = \"CANCELLED\" ]] && exit 1; " +
 				"done",
