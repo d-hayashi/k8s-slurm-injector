@@ -18,7 +18,7 @@ if [ -z ${DOCKER_FILE_PATH} ]; then
 fi
 
 echo "Building image ${IMAGE}:${VERSION}..."
-docker build \
+docker buildx build --load --platform linux/amd64 \
     --build-arg VERSION=${VERSION} \
     -t ${IMAGE}:${VERSION} \
     -f ${DOCKER_FILE_PATH} .
