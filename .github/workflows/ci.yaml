@@ -32,7 +32,7 @@ jobs:
     env:
       TAG_IMAGE_LATEST: "true"
       VERSION: ${GITHUB_SHA}
-    needs: [check, test]
+    needs: [test]
     name: Release image
     runs-on: ubuntu-latest
     steps:
@@ -50,7 +50,7 @@ jobs:
 
   release-image:
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [check, test]
+    needs: [test]
     name: Release image
     runs-on: ubuntu-latest
     # Only run in master and when has a tag.
