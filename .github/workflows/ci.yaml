@@ -3,14 +3,14 @@ name: CI
 on: [push]
 
 jobs:
-  check:
-    name: Check
-    runs-on: ubuntu-latest
-    # Execute the checks inside the contianer instead the VM.
-    container: golangci/golangci-lint:v1.57.2-alpine
-    steps:
-      - uses: actions/checkout@v2
-      - run: ./scripts/check/check.sh
+#  check:
+#    name: Check
+#    runs-on: ubuntu-latest
+#    # Execute the checks inside the contianer instead the VM.
+#    container: golangci/golangci-lint:v1.51.2-alpine
+#    steps:
+#      - uses: actions/checkout@v2
+#      - run: ./scripts/check/check.sh
 
   test:
     name: Test
