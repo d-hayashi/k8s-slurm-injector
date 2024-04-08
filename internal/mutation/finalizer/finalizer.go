@@ -7,10 +7,6 @@ import (
 	"github.com/d-hayashi/k8s-slurm-injector/internal/config_map"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/mutation/sidecar"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/slurm_handler"
-	batchv1 "k8s.io/api/batch/v1"
-	batchv1beta1 "k8s.io/api/batch/v1beta1"
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -36,19 +32,6 @@ type finalizer struct {
 
 func (f finalizer) Finalize(_ context.Context, obj metav1.Object) (string, error) {
 	var err error
-	var _objectname string
-
-	// Filter object
-	switch v := obj.(type) {
-	case *corev1.Pod:
-		_objectname = fmt.Sprintf("pod-%s", v.Name)
-	case *batchv1.Job:
-		_objectname = fmt.Sprintf("job-%s", v.Name)
-	case *batchv1beta1.CronJob:
-		_objectname = fmt.Sprintf("cronjob-%s", v.Name)
-	default:
-		return "", nil
-	}
 
 	// Check if injection is enabled
 	isInjectionEnabled := sidecar.IsInjectionEnabled(obj, f.targetNamespace, "")
@@ -63,43 +46,32 @@ func (f finalizer) Finalize(_ context.Context, obj metav1.Object) (string, error
 		return "", nil
 	}
 
-	namespace, exists := annotations["k8s-slurm-injector/namespace"]
-	if !exists {
-		namespace = obj.GetNamespace()
+	UUID, UUIDExists := annotations["k8s-slurm-injector/uuid"]
+	if !UUIDExists {
+		// Not a slurm job
+		return "", nil
 	}
-	objectName, exists := annotations["k8s-slurm-injector/object-name"]
-	if !exists {
-		objectName = _objectname
+
+	// Delete configmap
+	cms, err := f.configMapHandler.ListConfigMaps("", metav1.ListOptions{
+		LabelSelector: fmt.Sprintf("app=k8s-slurm-injector,k8s-slurm-injector/uuid=%s", UUID),
+	})
+	if err != nil {
+		_ = fmt.Errorf("failed to list configmaps: %s", err)
 	}
-	configMapName := config_map.ConfigMapNameFromObjectName(objectName)
-
-	if objectName != "" && namespace != "" {
-		// Delete the corresponding config-map if exists
-		configMap, err := f.configMapHandler.GetConfigMap(namespace, configMapName, nil)
-		if errors.IsNotFound(err) {
-			fmt.Printf("config-map '%s' does not exist, skipped deleting it", configMapName)
-		} else if statusError, isStatus := err.(*errors.StatusError); isStatus {
-			fmt.Printf("error getting configmap %v", statusError.ErrStatus.Message)
-		} else if err != nil {
-			fmt.Printf("error getting configmap: %s", err.Error())
-		} else {
-			// Get jobid from config-map
-			annotations = configMap.GetAnnotations()
-			if jobid, exists := annotations["k8s-slurm-injector/jobid"]; exists {
-				// Call scancel with the jobid
-				_, err = f.slurmHandler.SCancel(jobid)
-				if err != nil {
-					// TODO: Retry
-					_ = fmt.Errorf("%s", err.Error())
-				}
-			}
-
-			// Delete the config-map
-			err = f.configMapHandler.DeleteConfigMap(namespace, configMapName, nil)
+	for _, cm := range cms.Items {
+		// Get jobid
+		jobId, jobIdExists := cm.GetAnnotations()["k8s-slurm-injector/jobid"]
+		if jobIdExists && jobId != "to-be-set" {
+			_, err = f.slurmHandler.SCancel(jobId)
 			if err != nil {
-				// TODO: Retry
-				_ = fmt.Errorf("%s", err.Error())
+				_ = fmt.Errorf("failed to cancel job %s: %s", jobId, err)
 			}
+		}
+
+		err = f.configMapHandler.DeleteConfigMap(cm.GetNamespace(), cm.GetName(), nil)
+		if err != nil {
+			_ = fmt.Errorf("failed to delete configmap %s: %s", cm.GetName(), err)
 		}
 	}
 
