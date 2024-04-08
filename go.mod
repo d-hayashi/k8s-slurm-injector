@@ -4,6 +4,7 @@ go 1.18
 
 require (
 	github.com/coreos/prometheus-operator v0.39.0
+	github.com/google/uuid v1.1.2
 	github.com/oklog/run v1.1.0
 	github.com/prometheus/client_golang v1.14.0
 	github.com/sirupsen/logrus v1.8.1

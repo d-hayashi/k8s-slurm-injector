@@ -15,6 +15,7 @@ type SlurmHandler interface {
 	State(jobid string) (string, error)
 	SCancel(jobid string) (string, error)
 	List() ([]string, error)
+	ListUUIDsAndJobIDs() ([]string, []string, error)
 	GetNodeInfo() []NodeInfo
 	GetNodeStatus() []NodeStatus
 }
@@ -93,7 +94,7 @@ func (h *handler) fetchSlurmNodeStatus() error {
           nodes=$(sinfo --Node | tail -n +2 | awk '{print $1}');
           for node in ${nodes}; do 
             numCPUsFree=$(sinfo -N -o "%N %C" | awk -v node=${node} '{if ($1 == node) {cnt=split($2,cpus,"/"); print cpus[2]}}');
-            numGPUs=$(sinfo -N -o "%N %f" | awk -v node=${node} '{if ($1 == node) { if (match($0, /[0-9]+GPUs/)) {print substr($0, RSTART, RLENGTH - 4)} }}');
+            numGPUs=$(sinfo -N -o "%N %G" | awk -v node=${node} '{if ($1 == node) { split($2,gres_arr,","); for (gres in gres_arr) {num_gpus += gres} {print num_gpus} }}');
             numGPUsAllocated=$(squeue -o "%R %b" | awk -v node=${node} '(NR==0){count=0}{if ($1 == node) {if (match($2, "gpu.*[0-9]+")) {cnt=split($2,gres,":"); count += gres[cnt]}}} END{print count}');
             numGPUsFree=$((numGPUs - numGPUsAllocated));
             memFree=$(sinfo -N -o "%N %e" | awk -v node=${node} '($1 == node){print $2}');
@@ -146,11 +147,12 @@ func constructCommand(jobInfo *sidecar.JobInformation) ([]string, error) {
 	jobName := jobInfo.Name
 	if jobName == "" {
 		if jobInfo.Namespace == "" || jobInfo.ObjectName == "" {
-			jobName = "k8s-slurm-injector-job"
+			jobName = fmt.Sprintf("%s", "k8s-slurm-injector-job")
 		} else {
 			jobName = fmt.Sprintf("%s-%s", jobInfo.Namespace, jobInfo.ObjectName)
 		}
 	}
+	jobName = fmt.Sprintf("%s-%s", jobInfo.UUID, jobName)
 
 	commands := []string{
 		"sbatch",
@@ -268,6 +270,31 @@ func (h handler) List() ([]string, error) {
 	return jobIds, err
 }
 
+func (h handler) ListUUIDsAndJobIDs() ([]string, []string, error) {
+	var UUIDs []string
+	var JobIDs []string
+
+	command := ssh_handler.SSHCommand{
+		Command: "squeue -u $USER -o \"%32j:::sep:::%i\" --noheader",
+	}
+	out, err := h.ssh.RunCommand(command)
+
+	if err == nil {
+		for _, UUIDWithJobID := range strings.Split(string(out), "\n") {
+			UUID := strings.Split(UUIDWithJobID, ":::sep:::")[0]
+			UUID = strings.TrimSpace(UUID)
+			JobID := strings.Split(UUIDWithJobID, ":::sep:::")[1]
+			JobID = strings.TrimSpace(JobID)
+			if UUID != "" && len(UUID) == 32 && JobID != "" {
+				UUIDs = append(UUIDs, UUID)
+				JobIDs = append(JobIDs, JobID)
+			}
+		}
+	}
+
+	return UUIDs, JobIDs, err
+}
+
 func (h handler) GetNodeInfo() []NodeInfo {
 	return h.nodeInfo
 }
@@ -310,6 +337,10 @@ func (d dummyHandler) SCancel(jobid string) (string, error) {
 
 func (h dummyHandler) List() ([]string, error) {
 	return []string{}, nil
+}
+
+func (h dummyHandler) ListUUIDsAndJobIDs() ([]string, []string, error) {
+	return []string{}, []string{}, nil
 }
 
 func (d dummyHandler) GetNodeInfo() []NodeInfo {

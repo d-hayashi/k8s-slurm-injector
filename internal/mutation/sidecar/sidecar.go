@@ -3,6 +3,7 @@ package sidecar
 import (
 	"context"
 	"fmt"
+	"github.com/google/uuid"
 	"os"
 	"regexp"
 	"strconv"
@@ -58,6 +59,7 @@ type sidecarinjector struct {
 }
 
 type JobInformation struct {
+	UUID                  string
 	Namespace             string
 	ObjectName            string
 	NodeSpecificationMode string
@@ -73,6 +75,7 @@ type JobInformation struct {
 
 func NewJobInformation() *JobInformation {
 	jobInfo := JobInformation{
+		UUID:                  "", // strings.Replace(uuid.New().String(), "-", "", -1)
 		Namespace:             "",
 		ObjectName:            "",
 		NodeSpecificationMode: "auto",
@@ -313,11 +316,13 @@ func (s sidecarinjector) getJobInformation(obj metav1.Object, jobInfo *JobInform
 		return fmt.Errorf("failed to get name of object: %s", obj)
 	}
 	labels := obj.GetLabels()
+	annotations := obj.GetAnnotations()
 	ntasks := int64(1)
 	ncpus := int64(0)
 	ngpus := int64(0)
 	time := int64(0)
 	name := ""
+	uuid := ""
 
 	switch v := obj.(type) {
 	case *corev1.Pod:
@@ -342,7 +347,9 @@ func (s sidecarinjector) getJobInformation(obj metav1.Object, jobInfo *JobInform
 	for key, value := range labels {
 		if key == "k8s-slurm-injector/node-specification-mode" {
 			jobInfo.NodeSpecificationMode = value
-			if value != "auto" && value != "manual" {
+			if value == "" {
+				jobInfo.NodeSpecificationMode = "auto"
+			} else if value != "auto" && value != "manual" {
 				return fmt.Errorf("unrecognized label 'k8s-slurm-injector/node-specification-mode=%s'", value)
 			}
 		}
@@ -366,6 +373,49 @@ func (s sidecarinjector) getJobInformation(obj metav1.Object, jobInfo *JobInform
 		}
 		if key == "k8s-slurm-injector/name" {
 			name = value
+		}
+		if key == "k8s-slurm-injector/uuid" {
+			uuid = value
+		}
+	}
+
+	if annotations == nil {
+		annotations = map[string]string{}
+	}
+
+	// Get job-information
+	for key, value := range annotations {
+		if key == "k8s-slurm-injector/node-specification-mode" {
+			jobInfo.NodeSpecificationMode = value
+			if value == "" {
+				jobInfo.NodeSpecificationMode = "auto"
+			} else if value != "auto" && value != "manual" {
+				return fmt.Errorf("unrecognized label 'k8s-slurm-injector/node-specification-mode=%s'", value)
+			}
+		}
+		if key == "k8s-slurm-injector/partition" {
+			jobInfo.Partition = value
+		}
+		if key == "k8s-slurm-injector/node" {
+			jobInfo.Node = value
+		}
+		if key == "k8s-slurm-injector/ntasks" {
+			ntasks, _ = strconv.ParseInt(value, 10, 64)
+		}
+		if key == "k8s-slurm-injector/ncpus" {
+			ncpus, _ = strconv.ParseInt(value, 10, 64)
+		}
+		if key == "k8s-slurm-injector/ngpus" {
+			ngpus, _ = strconv.ParseInt(value, 10, 64)
+		}
+		if key == "k8s-slurm-injector/time" {
+			time, _ = strconv.ParseInt(value, 10, 64)
+		}
+		if key == "k8s-slurm-injector/name" {
+			name = value
+		}
+		if key == "k8s-slurm-injector/uuid" {
+			uuid = value
 		}
 	}
 
@@ -420,6 +470,7 @@ func (s sidecarinjector) getJobInformation(obj metav1.Object, jobInfo *JobInform
 		jobInfo.Time = fmt.Sprintf("%d", time)
 	}
 	jobInfo.Name = name
+	jobInfo.UUID = uuid
 
 	// Get ncpus
 	for _, container := range podSpec.Containers {
@@ -460,7 +511,8 @@ func (s sidecarinjector) constructURL(slurmWebhookURL string, jobInfo JobInforma
 		fmt.Sprintf("ncpus=%s&", jobInfo.Ncpus) +
 		fmt.Sprintf("gres=%s&", jobInfo.Gres) +
 		fmt.Sprintf("time=%s&", jobInfo.Time) +
-		fmt.Sprintf("name=%s&", jobInfo.Name)
+		fmt.Sprintf("name=%s&", jobInfo.Name) +
+		fmt.Sprintf("uuid=%s&", jobInfo.UUID)
 
 	url = strings.TrimSuffix(url, "&")
 
@@ -484,12 +536,17 @@ func (s sidecarinjector) mutateObject(obj metav1.Object, objectNamespace string)
 		return fmt.Errorf("unsupported type")
 	}
 
-	// Construct URLs
-	slurmWebhookURL := s.getSlurmWebhookURL()
+	// Get job information
 	err = s.getJobInformation(obj, &jobInfo, objectNamespace)
 	if err != nil {
 		return fmt.Errorf("failed to get job-information: %s", err.Error())
 	}
+
+	// Generate UUID
+	jobInfo.UUID = strings.Replace(uuid.New().String(), "-", "", -1)
+
+	// Construct URLs
+	slurmWebhookURL := s.getSlurmWebhookURL()
 	isInjectableURL := s.constructURL(slurmWebhookURL, jobInfo, "isinjectable")
 	sbatchURL := s.constructURL(slurmWebhookURL, jobInfo, "sbatch")
 	stateURL := s.constructURL(slurmWebhookURL, jobInfo, "state")
@@ -630,96 +687,96 @@ func (s sidecarinjector) mutateObject(obj metav1.Object, objectNamespace string)
 		delete(podSpec.Containers[i].Resources.Requests, "nvidia.com/gpu")
 	}
 
-	// Add container `slurm-watcher` as sidecar
-	recognizedSidecarContainerCheck := ""
-	for _, idx := range recognizedSidecarContainerIndices {
-		recognizedSidecarContainerCheck +=
-			fmt.Sprintf(
-				"count=0; "+
-					"while [[ $count -lt 10 ]]; "+
-					"do "+
-					"[[ -f /k8s-slurm-injector/sidecar_container_id_%d ]] && break; "+
-					"sleep 1; "+
-					"done; ",
-				idx,
-			)
-	}
-	sidecar := corev1.Container{
-		Name:    "slurm-watcher",
-		Image:   "curlimages/curl:7.75.0",
-		Command: []string{"/bin/sh", "-c"},
-		Args: []string{
-			fmt.Sprintf("stateURL=\"%s\"; ", stateURL) +
-				fmt.Sprintf("scancelURL=\"%s\"; ", scancelURL) +
-				"jobid=$(cat /k8s-slurm-injector/jobid); " +
-				"[[ $jobid = \"\" ]] && echo 'Failed to get job-id' >&2 && exit 1; " +
-				"[[ $jobid = \"error\" ]] && echo 'Failed to get job-id' >&2 && exit 1; " +
-				"[[ $jobid = \"none\" ]] && trap 'exit 0' SIGHUP SIGINT SIGQUIT SIGTERM && while true; do sleep 1; done; " +
-				"getState() { curl -fs \"${stateURL}&jobid=${jobid}\"; }; " +
-				"scancel() { curl -fs \"${scancelURL}&jobid=${jobid}\"; }; " +
-				"trap 'scancel || exit 0' SIGHUP SIGINT SIGQUIT SIGTERM ; " +
-				"touch /k8s-slurm-injector/cids_all; " +
-				"is_containerd=false; " +
-				"cat /proc/self/cgroup | grep -q containerd && is_containerd=true; " +
-				"${is_containerd} && cid_self=$(cat /proc/self/cgroup | grep cpuset: | awk '{n=split($1,A,\"cri-containerd\"); print substr(A[n],2)}'); " +
-				"! ${is_containerd} && cid_self=$(cat /proc/self/cgroup | grep cpuset: | awk '{n=split($1,A,\"/\"); print A[n]}'); " +
-				recognizedSidecarContainerCheck +
-				"count=0; " +
-				"while [[ $count -lt 3 ]]; " +
-				"do " +
-				"${is_containerd} && cat /proc/*/cgroup | awk '{n=split($1,A,\"cri-containerd\"); print substr(A[n],2)}' " +
-				"| sort | uniq | awk 'length($0)>=64{print $0}' >> /k8s-slurm-injector/cids_all; " +
-				"! ${is_containerd} && cat /proc/*/cgroup | awk '{n=split($1,A,\"/\"); print A[n]}' " +
-				"| sort | uniq | awk 'length($0)==64{print $0}' >> /k8s-slurm-injector/cids_all; " +
-				"sleep 1; " +
-				"count=$((count+1)); " +
-				"done; " +
-				"cat /k8s-slurm-injector/cids_all | sort | uniq | grep -v ${cid_self} > /k8s-slurm-injector/cids; " +
-				"cids=$(cat /k8s-slurm-injector/cids);" +
-				"[[ ! -n \"$cids\" ]] && (echo 'Failed to get container_id' >&2; scancel) && exit 1; " +
-				"pid_sleep=$(ps aux | awk 'NR==1{for(i=1;i<=NF;i++){if($i==\"PID\")pid=i;if($i==\"COMMAND\")command=i}}($command==\"/pause\"){print $pid}'); " +
-				"[[ ! -n \"${pid_sleep}\" ]] && (echo 'Failed to get PID of pause process' >&2; scancel) && exit 1; " +
-				"while [[ -n \"$cids\" ]]; " +
-				"do " +
-				"cid=$(cat /k8s-slurm-injector/cids | head -n1); " +
-				"cat /k8s-slurm-injector/cids | tail -n +2 > /k8s-slurm-injector/cids.new;" +
-				"mv /k8s-slurm-injector/cids.new /k8s-slurm-injector/cids; " +
-				"cids=$(cat /k8s-slurm-injector/cids);" +
-				"cat /k8s-slurm-injector/sidecar_container_id_* | grep ${cid} && continue; " +
-				"while true; " +
-				"do " +
-				"sleep 1; " +
-				"cat $(find /proc -mindepth 2 -maxdepth 2 -type f -name cgroup | grep -v /proc/${pid_sleep}/cgroup) 2>/dev/null" +
-				"| grep ${cid} > /dev/null || break; " +
-				"done; " +
-				"done; " +
-				"echo 'Terminating Istio-pilot if exists'; " +
-				"curl -fsI -X POST http://localhost:15020/quitquitquit; " +
-				"cat /k8s-slurm-injector/sidecar_container_id_* > /k8s-slurm-injector/sidecar_container_ids; " +
-				"cids=$(cat /k8s-slurm-injector/sidecar_container_ids); " +
-				"while [[ -n \"$cids\" ]]; " +
-				"do " +
-				"cid=$(cat /k8s-slurm-injector/sidecar_container_ids | head -n1); " +
-				"cat /k8s-slurm-injector/sidecar_container_ids | tail -n +2 > /k8s-slurm-injector/sidecar_container_ids.new; " +
-				"mv /k8s-slurm-injector/sidecar_container_ids.new /k8s-slurm-injector/sidecar_container_ids; " +
-				"cids=$(cat /k8s-slurm-injector/sidecar_container_ids); " +
-				"for pid in $(cd /proc && echo [0-9]* | tr \" \" \"\\n\" | sort -n); " +
-				"do " +
-				"[[ $pid -eq $pid_sleep ]] && continue; " +
-				"cat /proc/${pid}/cgroup | grep ${cid} >/dev/null && kill -9 ${pid}; " +
-				"done; " +
-				"done; " +
-				"scancel || exit 0",
-		},
-		ImagePullPolicy: "IfNotPresent",
-		VolumeMounts: []corev1.VolumeMount{
-			{
-				Name:      "k8s-slurm-injector-shared",
-				MountPath: "/k8s-slurm-injector",
-			},
-		},
-	}
-	podSpec.Containers = append(podSpec.Containers, sidecar)
+	//// Add container `slurm-watcher` as sidecar
+	//recognizedSidecarContainerCheck := ""
+	//for _, idx := range recognizedSidecarContainerIndices {
+	//	recognizedSidecarContainerCheck +=
+	//		fmt.Sprintf(
+	//			"count=0; "+
+	//				"while [[ $count -lt 10 ]]; "+
+	//				"do "+
+	//				"[[ -f /k8s-slurm-injector/sidecar_container_id_%d ]] && break; "+
+	//				"sleep 1; "+
+	//				"done; ",
+	//			idx,
+	//		)
+	//}
+	//sidecar := corev1.Container{
+	//	Name:    "slurm-watcher",
+	//	Image:   "curlimages/curl:7.75.0",
+	//	Command: []string{"/bin/sh", "-c"},
+	//	Args: []string{
+	//		fmt.Sprintf("stateURL=\"%s\"; ", stateURL) +
+	//			fmt.Sprintf("scancelURL=\"%s\"; ", scancelURL) +
+	//			"jobid=$(cat /k8s-slurm-injector/jobid); " +
+	//			"[[ $jobid = \"\" ]] && echo 'Failed to get job-id' >&2 && exit 1; " +
+	//			"[[ $jobid = \"error\" ]] && echo 'Failed to get job-id' >&2 && exit 1; " +
+	//			"[[ $jobid = \"none\" ]] && trap 'exit 0' SIGHUP SIGINT SIGQUIT SIGTERM && while true; do sleep 1; done; " +
+	//			"getState() { curl -fs \"${stateURL}&jobid=${jobid}\"; }; " +
+	//			"scancel() { curl -fs \"${scancelURL}&jobid=${jobid}\"; }; " +
+	//			"trap 'scancel || exit 0' SIGHUP SIGINT SIGQUIT SIGTERM ; " +
+	//			"touch /k8s-slurm-injector/cids_all; " +
+	//			"is_containerd=false; " +
+	//			"cat /proc/self/cgroup | grep -q containerd && is_containerd=true; " +
+	//			"${is_containerd} && cid_self=$(cat /proc/self/cgroup | grep cpuset: | awk '{n=split($1,A,\"cri-containerd\"); print substr(A[n],2)}'); " +
+	//			"! ${is_containerd} && cid_self=$(cat /proc/self/cgroup | grep cpuset: | awk '{n=split($1,A,\"/\"); print A[n]}'); " +
+	//			recognizedSidecarContainerCheck +
+	//			"count=0; " +
+	//			"while [[ $count -lt 3 ]]; " +
+	//			"do " +
+	//			"${is_containerd} && cat /proc/*/cgroup | awk '{n=split($1,A,\"cri-containerd\"); print substr(A[n],2)}' " +
+	//			"| sort | uniq | awk 'length($0)>=64{print $0}' >> /k8s-slurm-injector/cids_all; " +
+	//			"! ${is_containerd} && cat /proc/*/cgroup | awk '{n=split($1,A,\"/\"); print A[n]}' " +
+	//			"| sort | uniq | awk 'length($0)==64{print $0}' >> /k8s-slurm-injector/cids_all; " +
+	//			"sleep 1; " +
+	//			"count=$((count+1)); " +
+	//			"done; " +
+	//			"cat /k8s-slurm-injector/cids_all | sort | uniq | grep -v ${cid_self} > /k8s-slurm-injector/cids; " +
+	//			"cids=$(cat /k8s-slurm-injector/cids);" +
+	//			"[[ ! -n \"$cids\" ]] && (echo 'Failed to get container_id' >&2; scancel) && exit 1; " +
+	//			"pid_sleep=$(ps aux | awk 'NR==1{for(i=1;i<=NF;i++){if($i==\"PID\")pid=i;if($i==\"COMMAND\")command=i}}($command==\"/pause\"){print $pid}'); " +
+	//			"[[ ! -n \"${pid_sleep}\" ]] && (echo 'Failed to get PID of pause process' >&2; scancel) && exit 1; " +
+	//			"while [[ -n \"$cids\" ]]; " +
+	//			"do " +
+	//			"cid=$(cat /k8s-slurm-injector/cids | head -n1); " +
+	//			"cat /k8s-slurm-injector/cids | tail -n +2 > /k8s-slurm-injector/cids.new;" +
+	//			"mv /k8s-slurm-injector/cids.new /k8s-slurm-injector/cids; " +
+	//			"cids=$(cat /k8s-slurm-injector/cids);" +
+	//			"cat /k8s-slurm-injector/sidecar_container_id_* | grep ${cid} && continue; " +
+	//			"while true; " +
+	//			"do " +
+	//			"sleep 1; " +
+	//			"cat $(find /proc -mindepth 2 -maxdepth 2 -type f -name cgroup | grep -v /proc/${pid_sleep}/cgroup) 2>/dev/null" +
+	//			"| grep ${cid} > /dev/null || break; " +
+	//			"done; " +
+	//			"done; " +
+	//			"echo 'Terminating Istio-pilot if exists'; " +
+	//			"curl -fsI -X POST http://localhost:15020/quitquitquit; " +
+	//			"cat /k8s-slurm-injector/sidecar_container_id_* > /k8s-slurm-injector/sidecar_container_ids; " +
+	//			"cids=$(cat /k8s-slurm-injector/sidecar_container_ids); " +
+	//			"while [[ -n \"$cids\" ]]; " +
+	//			"do " +
+	//			"cid=$(cat /k8s-slurm-injector/sidecar_container_ids | head -n1); " +
+	//			"cat /k8s-slurm-injector/sidecar_container_ids | tail -n +2 > /k8s-slurm-injector/sidecar_container_ids.new; " +
+	//			"mv /k8s-slurm-injector/sidecar_container_ids.new /k8s-slurm-injector/sidecar_container_ids; " +
+	//			"cids=$(cat /k8s-slurm-injector/sidecar_container_ids); " +
+	//			"for pid in $(cd /proc && echo [0-9]* | tr \" \" \"\\n\" | sort -n); " +
+	//			"do " +
+	//			"[[ $pid -eq $pid_sleep ]] && continue; " +
+	//			"cat /proc/${pid}/cgroup | grep ${cid} >/dev/null && kill -9 ${pid}; " +
+	//			"done; " +
+	//			"done; " +
+	//			"scancel || exit 0",
+	//	},
+	//	ImagePullPolicy: "IfNotPresent",
+	//	VolumeMounts: []corev1.VolumeMount{
+	//		{
+	//			Name:      "k8s-slurm-injector-shared",
+	//			MountPath: "/k8s-slurm-injector",
+	//		},
+	//	},
+	//}
+	//podSpec.Containers = append(podSpec.Containers, sidecar)
 
 	// Add volume
 	volume := corev1.Volume{
@@ -759,6 +816,7 @@ func (s sidecarinjector) mutateObject(obj metav1.Object, objectNamespace string)
 	annotations["k8s-slurm-injector/gres"] = jobInfo.Gres
 	annotations["k8s-slurm-injector/time"] = jobInfo.Time
 	annotations["k8s-slurm-injector/name"] = jobInfo.Name
+	annotations["k8s-slurm-injector/uuid"] = jobInfo.UUID
 	obj.SetAnnotations(annotations)
 
 	// Modify labels
@@ -769,6 +827,7 @@ func (s sidecarinjector) mutateObject(obj metav1.Object, objectNamespace string)
 	labels["k8s-slurm-injector/status"] = "injected"
 	labels["k8s-slurm-injector/namespace"] = jobInfo.Namespace
 	labels["k8s-slurm-injector/object-name"] = jobInfo.ObjectName
+	labels["k8s-slurm-injector/uuid"] = jobInfo.UUID
 	obj.SetLabels(labels)
 
 	return nil
@@ -812,29 +871,33 @@ func (s sidecarinjector) fetchSlurmPartitions() ([]string, error) {
 
 func (s sidecarinjector) createConfigMap(obj metav1.Object, objectNamespace string) error {
 	namespace := objectNamespace
-	annotations := obj.GetAnnotations()
-	objectName, exist := annotations["k8s-slurm-injector/object-name"]
-	if !exist {
-		return fmt.Errorf("annotation 'k8s-slurm-injector/object-name' not found")
+	var jobInfo JobInformation
+	err := s.getJobInformation(obj, &jobInfo, objectNamespace)
+	if err != nil {
+		return fmt.Errorf("failed to get job-information for creating configmap: %s", err.Error())
 	}
-	configMapName := config_map.ConfigMapNameFromObjectName(objectName)
+	configMapName := config_map.ConfigMapNameFromObjectName(jobInfo.ObjectName)
 
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      configMapName,
 			Namespace: namespace,
 			Labels: map[string]string{
-				"app": "k8s-slurm-injector",
+				"app":                      "k8s-slurm-injector",
+				"k8s-slurm-injector/uuid":  jobInfo.UUID,
+				"k8s-slurm-injector/jobid": "to-be-set",
 			},
 			Annotations: map[string]string{
 				"k8s-slurm-injector/last-applied-command": "inject",
 				"k8s-slurm-injector/namespace":            namespace,
-				"k8s-slurm-injector/object-name":          objectName,
+				"k8s-slurm-injector/object-name":          jobInfo.ObjectName,
+				"k8s-slurm-injector/uuid":                 jobInfo.UUID,
+				"k8s-slurm-injector/jobid":                "to-be-set",
 			},
 		},
 	}
 
-	_, err := s.configMapHandler.GetConfigMap(namespace, configMapName, nil)
+	_, err = s.configMapHandler.GetConfigMap(namespace, configMapName, nil)
 	if errors.IsNotFound(err) {
 		// Create a config-map
 		_, err := s.configMapHandler.CreateConfigMap(namespace, cm, nil)

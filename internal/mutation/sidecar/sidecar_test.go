@@ -53,6 +53,7 @@ func TestSidecarinjector_Inject(t *testing.T) {
 						"k8s-slurm-injector/namespace":               "default",
 						"k8s-slurm-injector/object-name":             "pod-test",
 						"k8s-slurm-injector/status":                  "injected",
+						"k8s-slurm-injector/uuid":                    "auto-generated-value",
 					},
 					Annotations: map[string]string{
 						"k8s-slurm-injector/namespace":               "default",
@@ -67,6 +68,7 @@ func TestSidecarinjector_Inject(t *testing.T) {
 						"k8s-slurm-injector/gres":                    "",
 						"k8s-slurm-injector/time":                    "",
 						"k8s-slurm-injector/name":                    "",
+						"k8s-slurm-injector/uuid":                    "auto-generated-value",
 					},
 				},
 			},
@@ -122,6 +124,7 @@ func TestSidecarinjector_Inject(t *testing.T) {
 						"k8s-slurm-injector/namespace":   "target-namespace",
 						"k8s-slurm-injector/object-name": "pod-test",
 						"k8s-slurm-injector/status":      "injected",
+						"k8s-slurm-injector/uuid":        "auto-generated-value",
 					},
 					Annotations: map[string]string{
 						"k8s-slurm-injector/namespace":               "target-namespace",
@@ -136,6 +139,7 @@ func TestSidecarinjector_Inject(t *testing.T) {
 						"k8s-slurm-injector/gres":                    "",
 						"k8s-slurm-injector/time":                    "",
 						"k8s-slurm-injector/name":                    "",
+						"k8s-slurm-injector/uuid":                    "auto-generated-value",
 					},
 				},
 			},
@@ -183,6 +187,7 @@ func TestSidecarinjector_Inject(t *testing.T) {
 						"k8s-slurm-injector/namespace":               "default",
 						"k8s-slurm-injector/object-name":             "job-test",
 						"k8s-slurm-injector/status":                  "injected",
+						"k8s-slurm-injector/uuid":                    "auto-generated-value",
 					},
 					Annotations: map[string]string{
 						"k8s-slurm-injector/namespace":               "default",
@@ -197,6 +202,7 @@ func TestSidecarinjector_Inject(t *testing.T) {
 						"k8s-slurm-injector/gres":                    "",
 						"k8s-slurm-injector/time":                    "",
 						"k8s-slurm-injector/name":                    "",
+						"k8s-slurm-injector/uuid":                    "auto-generated-value",
 					},
 				},
 			},
@@ -241,6 +247,7 @@ func TestSidecarinjector_Inject(t *testing.T) {
 						"k8s-slurm-injector/namespace":               "default",
 						"k8s-slurm-injector/object-name":             "pod-test",
 						"k8s-slurm-injector/status":                  "injected",
+						"k8s-slurm-injector/uuid":                    "auto-generated-value",
 					},
 					Annotations: map[string]string{
 						"k8s-slurm-injector/namespace":               "default",
@@ -255,6 +262,7 @@ func TestSidecarinjector_Inject(t *testing.T) {
 						"k8s-slurm-injector/gres":                    "gpu:1",
 						"k8s-slurm-injector/time":                    "",
 						"k8s-slurm-injector/name":                    "",
+						"k8s-slurm-injector/uuid":                    "auto-generated-value",
 					},
 				},
 			},
@@ -314,6 +322,7 @@ func TestSidecarinjector_Inject(t *testing.T) {
 						"k8s-slurm-injector/namespace":   "default",
 						"k8s-slurm-injector/object-name": "pod-test",
 						"k8s-slurm-injector/status":      "injected",
+						"k8s-slurm-injector/uuid":        "auto-generated-value",
 					},
 					Annotations: map[string]string{
 						"k8s-slurm-injector/namespace":               "default",
@@ -328,6 +337,7 @@ func TestSidecarinjector_Inject(t *testing.T) {
 						"k8s-slurm-injector/gres":                    "gpu:1",
 						"k8s-slurm-injector/time":                    "",
 						"k8s-slurm-injector/name":                    "",
+						"k8s-slurm-injector/uuid":                    "auto-generated-value",
 					},
 				},
 			},
@@ -343,9 +353,11 @@ func TestSidecarinjector_Inject(t *testing.T) {
 						"k8s-slurm-injector/injection": "enabled",
 						"k8s-slurm-injector/node-specification-mode": "manual",
 						"k8s-slurm-injector/node":                    "node1",
+						"k8s-slurm-injector/uuid":                    "auto-generated-value",
 					},
 					Annotations: map[string]string{
 						"k8s-slurm-injector/status": "injected",
+						"k8s-slurm-injector/uuid":   "auto-generated-value",
 					},
 				},
 			},
@@ -359,9 +371,11 @@ func TestSidecarinjector_Inject(t *testing.T) {
 						"k8s-slurm-injector/injection": "enabled",
 						"k8s-slurm-injector/node-specification-mode": "manual",
 						"k8s-slurm-injector/node":                    "node1",
+						"k8s-slurm-injector/uuid":                    "auto-generated-value",
 					},
 					Annotations: map[string]string{
 						"k8s-slurm-injector/status": "injected",
+						"k8s-slurm-injector/uuid":   "auto-generated-value",
 					},
 				},
 			},
@@ -416,6 +430,20 @@ func TestSidecarinjector_Inject(t *testing.T) {
 
 			_, err := injector.Inject(context.TODO(), test.obj)
 			require.NoError(err)
+
+			// Make sure UUID is set.
+			labels := test.obj.GetLabels()
+			annotations := test.obj.GetAnnotations()
+			if status, statusExists := annotations["k8s-slurm-injector/status"]; statusExists && status == "injected" {
+				assert.NotEmpty(labels["k8s-slurm-injector/uuid"])
+				assert.NotEmpty(annotations["k8s-slurm-injector/uuid"])
+
+				// Remove UUID field for comparison.
+				labels["k8s-slurm-injector/uuid"] = "auto-generated-value"
+				test.obj.SetLabels(labels)
+				annotations["k8s-slurm-injector/uuid"] = "auto-generated-value"
+				test.obj.SetAnnotations(annotations)
+			}
 
 			switch test.obj.(type) {
 			case *corev1.Pod:
