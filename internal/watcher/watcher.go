@@ -150,6 +150,9 @@ func (w *watcher) fetchJobStateOnSlurm() error {
 }
 
 func (w *watcher) fetchJobStateOnKubernetes() error {
+	// Initialize client-set
+	clientset := client_set.GetClientSet()
+
 	// Get job-ids on kubernetes
 	cms, err := w.configMapHandler.ListConfigMaps("", metav1.ListOptions{
 		LabelSelector: "app=k8s-slurm-injector",
@@ -163,8 +166,42 @@ func (w *watcher) fetchJobStateOnKubernetes() error {
 		annotations := cm.GetAnnotations()
 		if jobId, jobIdExists := annotations["k8s-slurm-injector/jobid"]; jobIdExists {
 			if UUID, uuidExists := annotations["k8s-slurm-injector/uuid"]; uuidExists {
-				jobStateOnKubernetes := JobStateOnKubernetes{UUID: UUID, jobId: jobId}
-				jobStatesOnKubernetes = append(jobStatesOnKubernetes, jobStateOnKubernetes)
+				namespace, namespaceExists := annotations["k8s-slurm-injector/namespace"]
+				if namespaceExists {
+					objs, _err := clientset.CoreV1().Pods(namespace).List(
+						context.TODO(),
+						metav1.ListOptions{LabelSelector: fmt.Sprintf("k8s-slurm-injector/uuid=%s", UUID)},
+					)
+					if _err != nil {
+						w.logger.Errorf("err getting a pod with UUID '%s': %s", UUID, _err)
+						w.logger.Infof("deleting config-map %s in namespace %s", cm.GetName(), cm.GetNamespace())
+						err = w.configMapHandler.DeleteConfigMap(cm.GetNamespace(), cm.GetName(), nil)
+						if err != nil {
+							w.logger.Errorf("err deleting a config-map with UUID '%s': %s", UUID, err)
+						}
+					} else {
+						if len(objs.Items) > 0 {
+							// Configmap and pod exist
+							w.logger.Debugf("Job with UUID %s is running", UUID)
+							jobStateOnKubernetes := JobStateOnKubernetes{UUID: UUID, jobId: jobId}
+							jobStatesOnKubernetes = append(jobStatesOnKubernetes, jobStateOnKubernetes)
+						} else {
+							// Configmap exists but pod does not exist
+							if jobId == "to-be-set" {
+								w.logger.Debugf("Job with UUID %s is being initialized", UUID)
+								jobStateOnKubernetes := JobStateOnKubernetes{UUID: UUID, jobId: jobId}
+								jobStatesOnKubernetes = append(jobStatesOnKubernetes, jobStateOnKubernetes)
+							} else {
+								// if JobID is set but pod does not exist, it means the job is finished
+								w.logger.Infof("deleting config-map %s in namespace %s", cm.GetName(), cm.GetNamespace())
+								err = w.configMapHandler.DeleteConfigMap(cm.GetNamespace(), cm.GetName(), nil)
+								if err != nil {
+									w.logger.Errorf("err deleting a config-map with UUID '%s': %s", UUID, err)
+								}
+							}
+						}
+					}
+				}
 			}
 		}
 	}
