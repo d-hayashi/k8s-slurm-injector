@@ -281,11 +281,14 @@ func (h handler) ListUUIDsAndJobIDs() ([]string, []string, error) {
 
 	if err == nil {
 		for _, UUIDWithJobID := range strings.Split(string(out), "\n") {
+			if UUIDWithJobID == "" {
+				continue
+			}
 			UUID := strings.Split(UUIDWithJobID, ":::sep:::")[0]
 			UUID = strings.TrimSpace(UUID)
 			JobID := strings.Split(UUIDWithJobID, ":::sep:::")[1]
 			JobID = strings.TrimSpace(JobID)
-			if UUID != "" && len(UUID) == 32 && JobID != "" {
+			if len(UUID) == 32 && JobID != "" {
 				UUIDs = append(UUIDs, UUID)
 				JobIDs = append(JobIDs, JobID)
 			}
