@@ -5,14 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"strings"
 	"time"
 
 	"github.com/d-hayashi/k8s-slurm-injector/internal/client_set"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/config_map"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/log"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/slurm_handler"
-	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -32,10 +30,20 @@ type watcher struct {
 	TLSKeyFileContent  string
 }
 
+type JobStateOnSlurm struct {
+	UUID  string
+	jobId string
+}
+
+type JobStateOnKubernetes struct {
+	UUID  string
+	jobId string
+}
+
 type jobState struct {
-	jobIdsOnSlurm      []string
-	jobIdsOnKubernetes []string
-	killCandidates     map[string]bool
+	jobStatesOnSlurm      []JobStateOnSlurm
+	jobStatesOnKubernetes []JobStateOnKubernetes
+	killCandidates        map[string]bool
 }
 
 type patchStringValue struct {
@@ -64,9 +72,9 @@ func NewWatcher(
 	}
 
 	state := jobState{
-		jobIdsOnSlurm:      []string{},
-		jobIdsOnKubernetes: []string{},
-		killCandidates:     map[string]bool{},
+		jobStatesOnSlurm:      []JobStateOnSlurm{},
+		jobStatesOnKubernetes: []JobStateOnKubernetes{},
+		killCandidates:        map[string]bool{},
 	}
 	w := watcher{
 		configMapHandler:   configMapHandler,
@@ -125,22 +133,34 @@ func (w watcher) checkTLSKeyFileContent() {
 	}
 }
 
-func (w *watcher) fetchJobIdsOnSlurm() error {
+func (w *watcher) fetchJobStateOnSlurm() error {
 	// Get job-ids on slurm
-	jobIds, err := w.slurm.List()
+	UUIDs, JobIDs, err := w.slurm.ListUUIDsAndJobIDs()
 	if err != nil {
 		return err
 	}
 
-	w.state.jobIdsOnSlurm = jobIds
+	var jobStateOnSlurm []JobStateOnSlurm
+	for i, UUID := range UUIDs {
+		jobStateOnSlurm = append(jobStateOnSlurm, JobStateOnSlurm{UUID: UUID, jobId: JobIDs[i]})
+	}
+	w.state.jobStatesOnSlurm = jobStateOnSlurm
 	return nil
 }
 
-func (w *watcher) fetchJobIdsOnKubernetes() error {
-	// Initialize client-set
+func (w *watcher) fetchJobStateOnKubernetes() error {
+	// Initialization
 	clientset := client_set.GetClientSet()
+	jobStatesDict := make(map[string]JobStateOnKubernetes)
 
-	// Get job-ids on kubernetes
+	// Get pods on kubernetes
+	pods, err := clientset.CoreV1().Pods("").List(context.TODO(), metav1.ListOptions{
+		LabelSelector: "k8s-slurm-injector/status=injected",
+	})
+	if err != nil {
+		return err
+	}
+	// Get configmaps on kubernetes
 	cms, err := w.configMapHandler.ListConfigMaps("", metav1.ListOptions{
 		LabelSelector: "app=k8s-slurm-injector",
 	})
@@ -148,99 +168,116 @@ func (w *watcher) fetchJobIdsOnKubernetes() error {
 		return err
 	}
 
-	var jobIds []string
-	for _, cm := range cms.Items {
-		annotations := cm.GetAnnotations()
-		if jobId, exists := annotations["k8s-slurm-injector/jobid"]; exists {
-			// Make sure that the corresponding pod exists
-			namespace, namespaceExists := annotations["k8s-slurm-injector/namespace"]
-			objectName, objectNameExists := annotations["k8s-slurm-injector/object-name"]
-			if namespaceExists && objectNameExists {
-				if strings.HasPrefix(objectName, "pod-") {
-					objs, _err := clientset.CoreV1().Pods(namespace).List(
-						context.TODO(),
-						metav1.ListOptions{LabelSelector: fmt.Sprintf("k8s-slurm-injector/object-name=%s", objectName)},
-					)
-					if _err != nil {
-						w.logger.Debugf("err getting a pod with job-id '%s': %s", jobId, _err)
+	for _, pod := range pods.Items {
+		annotations := pod.GetAnnotations()
+		if UUID, uuidExists := annotations["k8s-slurm-injector/uuid"]; uuidExists {
+			if jobId, jobIdExists := annotations["k8s-slurm-injector/jobid"]; jobIdExists {
+				configMapExists := false
+				for _, cm := range cms.Items {
+					if cmUUID, cmUUIDExists := cm.GetAnnotations()["k8s-slurm-injector/uuid"]; cmUUIDExists {
+						if cmUUID == UUID {
+							configMapExists = true
+						}
 					}
-					if len(objs.Items) > 0 || !errors.IsNotFound(_err) {
-						jobIds = append(jobIds, jobId)
-					}
-				} else {
-					jobIds = append(jobIds, jobId)
 				}
-			} else {
-				jobIds = append(jobIds, jobId)
+				if configMapExists {
+					jobStateOnKubernetes := JobStateOnKubernetes{UUID: UUID, jobId: jobId}
+					jobStatesDict[UUID] = jobStateOnKubernetes
+				} else {
+					// Pod exists but configmap does not exist
+					w.logger.Infof("deleting pod %s in namespace %s", pod.GetName(), pod.GetNamespace())
+					err = clientset.CoreV1().Pods(pod.GetNamespace()).Delete(context.TODO(), pod.GetName(), metav1.DeleteOptions{})
+					if err != nil {
+						w.logger.Errorf("err deleting a pod with UUID '%s': %s", UUID, err)
+					}
+				}
 			}
 		}
 	}
 
-	w.state.jobIdsOnKubernetes = jobIds
+	for _, cm := range cms.Items {
+		annotations := cm.GetAnnotations()
+		if jobId, jobIdExists := annotations["k8s-slurm-injector/jobid"]; jobIdExists {
+			if UUID, uuidExists := annotations["k8s-slurm-injector/uuid"]; uuidExists {
+				podExists := false
+				for _, pod := range pods.Items {
+					if podUUID, podUUIDExists := pod.GetAnnotations()["k8s-slurm-injector/uuid"]; podUUIDExists {
+						if podUUID == UUID {
+							podExists = true
+						}
+					}
+				}
+				if podExists {
+					jobStateOnKubernetes := JobStateOnKubernetes{UUID: UUID, jobId: jobId}
+					jobStatesDict[UUID] = jobStateOnKubernetes
+				} else {
+					// Configmap exists but pod does not exist
+					if jobId == "to-be-set" {
+						w.logger.Debugf("Job with UUID %s is being initialized", UUID)
+						jobStateOnKubernetes := JobStateOnKubernetes{UUID: UUID, jobId: jobId}
+						jobStatesDict[UUID] = jobStateOnKubernetes
+					} else {
+						// if JobID is set but pod does not exist, it means the job is finished
+						w.logger.Infof("deleting config-map %s in namespace %s", cm.GetName(), cm.GetNamespace())
+						err = w.configMapHandler.DeleteConfigMap(cm.GetNamespace(), cm.GetName(), nil)
+						if err != nil {
+							w.logger.Errorf("err deleting a config-map with UUID '%s': %s", UUID, err)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Convert map to slice
+	var jobStatesOnKubernetes []JobStateOnKubernetes
+	for _, jobStateOnKubernetes := range jobStatesDict {
+		jobStatesOnKubernetes = append(jobStatesOnKubernetes, jobStateOnKubernetes)
+	}
+
+	w.state.jobStatesOnKubernetes = jobStatesOnKubernetes
 
 	return nil
 }
 
-func (w watcher) deleteKubernetesResourcesOfJobId(jobId string) error {
-	// Get job-ids on kubernetes
+func (w watcher) deleteKubernetesResourcesOfUUID(UUID string) error {
+	// Initialize client-set
+	clientset := client_set.GetClientSet()
+
+	// Get pod
+	pods, err := clientset.CoreV1().Pods("").List(
+		context.TODO(),
+		metav1.ListOptions{LabelSelector: fmt.Sprintf("k8s-slurm-injector/uuid=%s", UUID)},
+	)
+	if err != nil {
+		return err
+	}
+	if len(pods.Items) == 0 {
+		return fmt.Errorf("could not find a pod which corresponds to UUID: %s", UUID)
+	}
+
+	// Delete pod
+	for _, pod := range pods.Items {
+		err = clientset.CoreV1().Pods(pod.GetNamespace()).Delete(context.TODO(), pod.GetName(), metav1.DeleteOptions{})
+		if err != nil {
+			return err
+		}
+	}
+
+	// Get configmap
 	cms, err := w.configMapHandler.ListConfigMaps("", metav1.ListOptions{
-		LabelSelector: fmt.Sprintf("app=k8s-slurm-injector,k8s-slurm-injector/jobid=%s", jobId),
+		LabelSelector: fmt.Sprintf("app=k8s-slurm-injector,k8s-slurm-injector/uuid=%s", UUID),
 	})
 	if err != nil {
 		return err
 	}
 
 	if len(cms.Items) == 0 {
-		return fmt.Errorf("could not find a config-map which corresponds to job-id: %s", jobId)
+		return fmt.Errorf("could not find a config-map which corresponds to UUID: %s", UUID)
 	}
 
-	// Initialize client-set
-	clientset := client_set.GetClientSet()
-
+	// Delete config-map
 	for _, cm := range cms.Items {
-		// Get the corresponding object name and namespace
-		objectNamespace := ""
-		objectName := ""
-		for key, value := range cm.GetAnnotations() {
-			if key == "k8s-slurm-injector/namespace" {
-				objectNamespace = value
-			}
-			if key == "k8s-slurm-injector/object-name" {
-				objectName = value
-			}
-		}
-		if objectNamespace == "" || objectName == "" {
-			return fmt.Errorf("failed to get object information from config-map '%s'", cm.GetName())
-		}
-
-		// Delete the resources related to the config-map
-		if strings.HasPrefix(objectName, "pod-") {
-			// Check if the pod exist
-			podName := strings.Replace(objectName, "pod-", "", 1)
-			pod, err := clientset.CoreV1().Pods(objectNamespace).Get(context.TODO(), podName, metav1.GetOptions{})
-			if err == nil {
-				// Check the condition of the pod
-				isReady := "Unknown"
-				for _, condition := range pod.Status.Conditions {
-					if condition.Type == "Ready" {
-						isReady = string(condition.Status)
-					}
-				}
-				// If the pod is running with status "Ready", delete the pod
-				if isReady == "True" && pod.Status.Phase == "Running" {
-					w.logger.Debugf("deleting pod %s in namespace %s", podName, objectNamespace)
-					err = clientset.CoreV1().Pods(objectNamespace).Delete(context.TODO(), podName, metav1.DeleteOptions{})
-					if err != nil {
-						return err
-					}
-				}
-			}
-		} else {
-			return fmt.Errorf("cannot delete object (unsupported): %s", objectName)
-		}
-
-		// Delete the config-map
-		w.logger.Debugf("deleting config-map %s in namespace %s", cm.GetName(), cm.GetNamespace())
 		err = w.configMapHandler.DeleteConfigMap(cm.GetNamespace(), cm.GetName(), nil)
 		if err != nil {
 			return err
@@ -302,51 +339,46 @@ func (w *watcher) routine() {
 		w.checkTLSKeyFileContent()
 	}
 
-	if err := w.fetchJobIdsOnSlurm(); err != nil {
+	if err := w.fetchJobStateOnSlurm(); err != nil {
 		w.logger.Errorf("could not fetch job-ids on slurm: %s", err.Error())
 		return
 	}
-	if err := w.fetchJobIdsOnKubernetes(); err != nil {
+	if err := w.fetchJobStateOnKubernetes(); err != nil {
 		w.logger.Errorf("could not fetch job-ids on kubernetes: %s", err.Error())
 		return
 	}
 
-	for _, jobIdOnSlurm := range w.state.jobIdsOnSlurm {
+	w.logger.Debugf("jobStatesOnSlurm: %v", w.state.jobStatesOnSlurm)
+	w.logger.Debugf("jobStatesOnKubernetes: %v", w.state.jobStatesOnKubernetes)
+
+	for _, jobStateOnSlurm := range w.state.jobStatesOnSlurm {
 		isExists := false
-		for _, jobIdOnKubernetes := range w.state.jobIdsOnKubernetes {
-			if jobIdOnSlurm == jobIdOnKubernetes {
+		for _, jobStateOnKubernetes := range w.state.jobStatesOnKubernetes {
+			if jobStateOnSlurm.UUID == jobStateOnKubernetes.UUID {
 				isExists = true
 			}
 		}
 		if !isExists {
-			// In case the job-id only exists on slurm, add to kill-candidates first.
-			if _, exists := w.state.killCandidates[jobIdOnSlurm]; exists {
-				w.logger.Infof("killing slurm job '%s'", jobIdOnSlurm)
-				_, err := w.slurm.SCancel(jobIdOnSlurm)
-				if err != nil {
-					w.logger.Errorf("could not scancel job-id '%s': %s", jobIdOnSlurm, err.Error())
-				} else {
-					// Remove job-id from kill-candidates
-					delete(w.state.killCandidates, jobIdOnSlurm)
-				}
-			} else {
-				w.logger.Debugf("adding slurm job '%s' to kill-candidate", jobIdOnSlurm)
-				w.state.killCandidates[jobIdOnSlurm] = true
+			// In case the job only exists on slurm, delete the corresponding job on slurm
+			w.logger.Infof("killing slurm job '%s'", jobStateOnSlurm.jobId)
+			_, err := w.slurm.SCancel(jobStateOnSlurm.jobId)
+			if err != nil {
+				w.logger.Errorf("could not scancel job-id '%s': %s", jobStateOnSlurm.jobId, err.Error())
 			}
 		}
 	}
 
-	for _, jobIdOnKubernetes := range w.state.jobIdsOnKubernetes {
+	for _, jobStateOnKubernetes := range w.state.jobStatesOnKubernetes {
 		isExists := false
-		for _, jobIdOnSlurm := range w.state.jobIdsOnSlurm {
-			if jobIdOnKubernetes == jobIdOnSlurm {
+		for _, jobStateOnSlurm := range w.state.jobStatesOnSlurm {
+			if jobStateOnKubernetes.UUID == jobStateOnSlurm.UUID {
 				isExists = true
 			}
 		}
-		if !isExists {
-			// Remove the corresponding config-map in case that the job-id does not exist on Slurm
-			w.logger.Infof("deleting config-map of job-id %s", jobIdOnKubernetes)
-			if err := w.deleteKubernetesResourcesOfJobId(jobIdOnKubernetes); err != nil {
+		if !isExists && jobStateOnKubernetes.jobId != "to-be-set" {
+			// Remove the corresponding kubernetes resources if the job only exists on kubernetes
+			w.logger.Infof("deleting pod and config-map of UUID %s", jobStateOnKubernetes.UUID)
+			if err := w.deleteKubernetesResourcesOfUUID(jobStateOnKubernetes.UUID); err != nil {
 				w.logger.Errorf("could not delete the corresponding config-map: %s", err.Error())
 			}
 		}

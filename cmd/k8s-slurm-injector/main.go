@@ -19,7 +19,6 @@ import (
 	"github.com/d-hayashi/k8s-slurm-injector/internal/http/webhook"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/log"
 	internalmetricsprometheus "github.com/d-hayashi/k8s-slurm-injector/internal/metrics/prometheus"
-	"github.com/d-hayashi/k8s-slurm-injector/internal/mutation/finalizer"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/mutation/sidecar"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/slurm_handler"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/ssh_handler"
@@ -71,12 +70,6 @@ func runApp() error {
 	slurmHandler, err := slurm_handler.NewSlurmHandler(sshHandler)
 	if err != nil {
 		return fmt.Errorf("failed to initialize slurm-handler: %s", err)
-	}
-
-	// Initialize finalizer
-	_finalizer, err := finalizer.NewFinalizer(configMapHandler, slurmHandler, targetNamespaces)
-	if err != nil {
-		return fmt.Errorf("failed to initialize finalizer: %s", err)
 	}
 
 	// Initialize Sidecar-injector
@@ -147,7 +140,6 @@ func runApp() error {
 		// Webhook handler.
 		wh, err := webhook.New(webhook.Config{
 			SidecarInjector: sidecarInjector,
-			Finalizer:       _finalizer,
 			MetricsRecorder: metricsRec,
 			Logger:          logger,
 		})

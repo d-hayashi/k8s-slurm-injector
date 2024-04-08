@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	"github.com/d-hayashi/k8s-slurm-injector/internal/log"
-	"github.com/d-hayashi/k8s-slurm-injector/internal/mutation/finalizer"
 	"github.com/d-hayashi/k8s-slurm-injector/internal/mutation/sidecar"
 )
 
@@ -13,7 +12,6 @@ import (
 type Config struct {
 	MetricsRecorder MetricsRecorder
 	SidecarInjector sidecar.SidecarInjector
-	Finalizer       finalizer.Finalizer
 	Logger          log.Logger
 }
 
@@ -21,10 +19,6 @@ func (c *Config) defaults() error {
 
 	if c.SidecarInjector == nil {
 		return fmt.Errorf("sidecar injector is required")
-	}
-
-	if c.Finalizer == nil {
-		return fmt.Errorf("finalizer is required")
 	}
 
 	if c.MetricsRecorder == nil {
@@ -39,11 +33,10 @@ func (c *Config) defaults() error {
 }
 
 type handler struct {
-	sidecar   sidecar.SidecarInjector
-	finalizer finalizer.Finalizer
-	handler   http.Handler
-	metrics   MetricsRecorder
-	logger    log.Logger
+	sidecar sidecar.SidecarInjector
+	handler http.Handler
+	metrics MetricsRecorder
+	logger  log.Logger
 }
 
 // New returns a new webhook handler.
@@ -56,11 +49,10 @@ func New(config Config) (http.Handler, error) {
 	mux := http.NewServeMux()
 
 	h := handler{
-		handler:   mux,
-		sidecar:   config.SidecarInjector,
-		finalizer: config.Finalizer,
-		metrics:   config.MetricsRecorder,
-		logger:    config.Logger.WithKV(log.KV{"service": "webhook-handler"}),
+		handler: mux,
+		sidecar: config.SidecarInjector,
+		metrics: config.MetricsRecorder,
+		logger:  config.Logger.WithKV(log.KV{"service": "webhook-handler"}),
 	}
 
 	// Register all the routes with our router.

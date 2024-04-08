@@ -12,11 +12,5 @@ func (h handler) routes(router *http.ServeMux) error {
 	}
 	router.Handle("/wh/mutating/injectsidecar", injectsidecar)
 
-	finalizer, err := h.initFinalizer()
-	if err != nil {
-		return err
-	}
-	router.Handle("/wh/mutating/finalize", finalizer)
-
 	return nil
 }

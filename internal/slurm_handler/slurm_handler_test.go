@@ -15,6 +15,7 @@ func TestSbatchHandler_constructCommand(t *testing.T) {
 	}{
 		"case1": {
 			sidecar.JobInformation{
+				UUID:      "uuid",
 				Partition: "partition1",
 			},
 			[]string{
@@ -22,12 +23,13 @@ func TestSbatchHandler_constructCommand(t *testing.T) {
 				"--parsable",
 				"--output=/dev/null",
 				"--error=/dev/null",
-				"--job-name=k8s-slurm-injector-job",
+				"--job-name=uuid-k8s-slurm-injector-job",
 				"--partition=partition1",
 			},
 		},
 		"case2": {
 			sidecar.JobInformation{
+				UUID:      "uuid",
 				Partition: "partition1",
 				Node:      "node1",
 				Ntasks:    "2",
@@ -41,7 +43,7 @@ func TestSbatchHandler_constructCommand(t *testing.T) {
 				"--parsable",
 				"--output=/dev/null",
 				"--error=/dev/null",
-				"--job-name=test",
+				"--job-name=uuid-test",
 				"--partition=partition1",
 				"--nodelist=node1",
 				"--ntasks=2",
@@ -52,6 +54,7 @@ func TestSbatchHandler_constructCommand(t *testing.T) {
 		},
 		"case3": {
 			sidecar.JobInformation{
+				UUID:       "uuid",
 				Partition:  "partition1",
 				Namespace:  "ns",
 				ObjectName: "abc",
@@ -61,12 +64,13 @@ func TestSbatchHandler_constructCommand(t *testing.T) {
 				"--parsable",
 				"--output=/dev/null",
 				"--error=/dev/null",
-				"--job-name=ns-abc",
+				"--job-name=uuid-ns-abc",
 				"--partition=partition1",
 			},
 		},
 		"case4": {
 			sidecar.JobInformation{
+				UUID:      "uuid",
 				Partition: "partition1",
 				Namespace: "ns",
 			},
@@ -75,7 +79,7 @@ func TestSbatchHandler_constructCommand(t *testing.T) {
 				"--parsable",
 				"--output=/dev/null",
 				"--error=/dev/null",
-				"--job-name=k8s-slurm-injector-job",
+				"--job-name=uuid-k8s-slurm-injector-job",
 				"--partition=partition1",
 			},
 		},
