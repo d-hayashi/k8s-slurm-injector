@@ -155,7 +155,7 @@ func (w *watcher) fetchJobStateOnKubernetes() error {
 
 	// Get pods on kubernetes
 	pods, err := clientset.CoreV1().Pods("").List(context.TODO(), metav1.ListOptions{
-		LabelSelector: "k8s-slurm-injector/status=injected=injected",
+		LabelSelector: "k8s-slurm-injector/status=injected",
 	})
 	if err != nil {
 		return err

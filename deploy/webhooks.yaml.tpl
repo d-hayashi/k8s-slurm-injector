@@ -25,22 +25,3 @@ webhooks:
         apiGroups: ["*"]
         apiVersions: ["*"]
         resources: ["pods"]
-  - name: delete-slurm-job.d-hayashi.dev
-    objectSelector:
-      matchExpressions:
-        - key: app
-          operator: NotIn
-          values: [ "k8s-slurm-injector" ]
-    admissionReviewVersions: ["v1"]
-    sideEffects: None
-    clientConfig:
-      service:
-        name: k8s-slurm-injector
-        namespace: k8s-slurm-injector
-        path: /wh/mutating/finalize
-      caBundle: CA_BUNDLE
-    rules:
-      - operations: ["DELETE"]
-        apiGroups: ["*"]
-        apiVersions: ["*"]
-        resources: ["pods"]
