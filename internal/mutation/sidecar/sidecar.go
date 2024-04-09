@@ -725,9 +725,24 @@ func (s sidecarinjector) mutateObject(obj metav1.Object, objectNamespace string)
 				},
 			},
 		}
-		podSpec.Affinity = &corev1.Affinity{
-			NodeAffinity: nodeAffinity,
+		if podSpec.Affinity == nil {
+			podSpec.Affinity = &corev1.Affinity{
+				NodeAffinity: nodeAffinity,
+			}
+		} else if podSpec.Affinity.NodeAffinity == nil {
+			podSpec.Affinity.NodeAffinity = nodeAffinity
+		} else if podSpec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution == nil {
+			podSpec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution =
+				nodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution
+		} else if podSpec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms == nil {
+			podSpec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms =
+				nodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms
+		} else {
+			podSpec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms =
+				append(podSpec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms,
+					nodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms...)
 		}
+
 	}
 
 	// Apply mutations
