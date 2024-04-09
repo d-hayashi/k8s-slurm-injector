@@ -48,6 +48,7 @@ func parseQueryParams(r *http.Request, jobInfo *sidecar.JobInformation) error {
 	jobInfo.Node = regString.ReplaceAllString(r.URL.Query().Get("node"), "")
 	jobInfo.Ntasks = regDecimal.ReplaceAllString(r.URL.Query().Get("ntasks"), "")
 	jobInfo.Ncpus = regDecimal.ReplaceAllString(r.URL.Query().Get("ncpus"), "")
+	jobInfo.Ngpus = regDecimal.ReplaceAllString(r.URL.Query().Get("ngpus"), "")
 	jobInfo.Gres = regString.ReplaceAllString(r.URL.Query().Get("gres"), "")
 	jobInfo.Time = regDecimal.ReplaceAllString(r.URL.Query().Get("time"), "")
 	jobInfo.Name = regString.ReplaceAllString(r.URL.Query().Get("name"), "")

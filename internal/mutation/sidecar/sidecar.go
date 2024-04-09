@@ -67,6 +67,7 @@ type JobInformation struct {
 	Node                  string
 	Ntasks                string
 	Ncpus                 string
+	Ngpus                 string
 	GpuLimit              bool
 	Gres                  string
 	Time                  string
@@ -83,6 +84,7 @@ func NewJobInformation() *JobInformation {
 		Node:                  "",
 		Ntasks:                "1",
 		Ncpus:                 "1",
+		Ngpus:                 "0",
 		GpuLimit:              false,
 		Gres:                  "",
 		Time:                  "",
@@ -491,6 +493,7 @@ func (s sidecarinjector) getJobInformation(obj metav1.Object, jobInfo *JobInform
 	if ngpus > 0 {
 		jobInfo.Gres = fmt.Sprintf("gpu:%d", ngpus)
 	}
+	jobInfo.Ngpus = fmt.Sprintf("%d", ngpus)
 
 	// Check
 	if jobInfo.NodeSpecificationMode == "manual" && jobInfo.Node == "" {
@@ -509,6 +512,7 @@ func (s sidecarinjector) constructURL(slurmWebhookURL string, jobInfo JobInforma
 		fmt.Sprintf("node=%s&", jobInfo.Node) +
 		fmt.Sprintf("ntasks=%s&", jobInfo.Ntasks) +
 		fmt.Sprintf("ncpus=%s&", jobInfo.Ncpus) +
+		fmt.Sprintf("ngpus=%s&", jobInfo.Ngpus) +
 		fmt.Sprintf("gres=%s&", jobInfo.Gres) +
 		fmt.Sprintf("time=%s&", jobInfo.Time) +
 		fmt.Sprintf("name=%s&", jobInfo.Name) +
@@ -696,6 +700,51 @@ func (s sidecarinjector) mutateObject(obj metav1.Object, objectNamespace string)
 	}
 	podSpec.Volumes = append([]corev1.Volume{volume}, podSpec.Volumes...)
 
+	// Add node affinity if GPUs are requested
+	ngpus, err := strconv.Atoi(jobInfo.Ngpus)
+	if err != nil {
+		ngpus = 0
+	}
+	if ngpus > 0 {
+		slurmNumGPUsFree := []string{}
+		for i := 0; i < ngpus; i++ {
+			slurmNumGPUsFree = append(slurmNumGPUsFree, fmt.Sprintf("%d", i))
+		}
+		nodeAffinity := &corev1.NodeAffinity{
+			RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+				NodeSelectorTerms: []corev1.NodeSelectorTerm{
+					{
+						MatchExpressions: []corev1.NodeSelectorRequirement{
+							{
+								Key:      "slurm-num-gpus-free",
+								Operator: corev1.NodeSelectorOpNotIn,
+								Values:   slurmNumGPUsFree,
+							},
+						},
+					},
+				},
+			},
+		}
+		if podSpec.Affinity == nil {
+			podSpec.Affinity = &corev1.Affinity{
+				NodeAffinity: nodeAffinity,
+			}
+		} else if podSpec.Affinity.NodeAffinity == nil {
+			podSpec.Affinity.NodeAffinity = nodeAffinity
+		} else if podSpec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution == nil {
+			podSpec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution =
+				nodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution
+		} else if podSpec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms == nil {
+			podSpec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms =
+				nodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms
+		} else {
+			podSpec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms =
+				append(podSpec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms,
+					nodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms...)
+		}
+
+	}
+
 	// Apply mutations
 	switch v := obj.(type) {
 	case *corev1.Pod:
@@ -721,6 +770,7 @@ func (s sidecarinjector) mutateObject(obj metav1.Object, objectNamespace string)
 	annotations["k8s-slurm-injector/node"] = jobInfo.Node
 	annotations["k8s-slurm-injector/ntasks"] = jobInfo.Ntasks
 	annotations["k8s-slurm-injector/ncpus"] = jobInfo.Ncpus
+	annotations["k8s-slurm-injector/ngpus"] = jobInfo.Ngpus
 	annotations["k8s-slurm-injector/gpu-limit"] = strconv.FormatBool(jobInfo.GpuLimit)
 	annotations["k8s-slurm-injector/gres"] = jobInfo.Gres
 	annotations["k8s-slurm-injector/time"] = jobInfo.Time
