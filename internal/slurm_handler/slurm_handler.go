@@ -94,7 +94,7 @@ func (h *handler) fetchSlurmNodeStatus() error {
           nodes=$(sinfo --Node | tail -n +2 | awk '{print $1}');
           for node in ${nodes}; do 
             numCPUsFree=$(sinfo -N -o "%N %C" | awk -v node=${node} '{if ($1 == node) {cnt=split($2,cpus,"/"); print cpus[2]}}');
-            numGPUs=$(sinfo -N -o "%N %G" | awk -v node=${node} '{if ($1 == node) { split($2,gres_arr,","); for (gres in gres_arr) {num_gpus += gres} {print num_gpus} }}');
+            numGPUs=$(sinfo -N -o "%N %G" | awk -v node=${node} '{if ($1 == node) { n=split($2,gres_arr,","); for (i=1;i<n+1;i++){m=split(gres_arr[i],gres_size,":"); num_gpus += gres_size[m]}}} END{print num_gpus}');
             numGPUsAllocated=$(squeue -o "%R %b" | awk -v node=${node} '(NR==0){count=0}{if ($1 == node) {if (match($2, "gpu.*[0-9]+")) {cnt=split($2,gres,":"); count += gres[cnt]}}} END{print count}');
             numGPUsFree=$((numGPUs - numGPUsAllocated));
             memFree=$(sinfo -N -o "%N %e" | awk -v node=${node} '($1 == node){print $2}');
