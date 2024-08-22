@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/google/uuid"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"os"
 	"regexp"
 	"strconv"
@@ -613,6 +614,16 @@ func (s sidecarinjector) mutateObject(obj metav1.Object, objectNamespace string)
 				MountPath: "/k8s-slurm-injector",
 			},
 		},
+		Resources: corev1.ResourceRequirements{
+			Limits: corev1.ResourceList{
+				"cpu":    resource.MustParse("0.1"),
+				"memory": resource.MustParse("100Mi"),
+			},
+			Requests: corev1.ResourceList{
+				"cpu":    resource.MustParse("0.1"),
+				"memory": resource.MustParse("100Mi"),
+			},
+		},
 	}
 
 	// Add init-container-2
@@ -637,6 +648,16 @@ func (s sidecarinjector) mutateObject(obj metav1.Object, objectNamespace string)
 			{
 				Name:      "k8s-slurm-injector-shared",
 				MountPath: "/k8s-slurm-injector",
+			},
+		},
+		Resources: corev1.ResourceRequirements{
+			Limits: corev1.ResourceList{
+				"cpu":    resource.MustParse("0.1"),
+				"memory": resource.MustParse("100Mi"),
+			},
+			Requests: corev1.ResourceList{
+				"cpu":    resource.MustParse("0.1"),
+				"memory": resource.MustParse("100Mi"),
 			},
 		},
 	}
