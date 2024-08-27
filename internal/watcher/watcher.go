@@ -169,6 +169,10 @@ func (w *watcher) fetchJobStateOnKubernetes() error {
 	}
 
 	for _, pod := range pods.Items {
+		// Filter out pods with state `Succeeded` or `Failed`
+		if pod.Status.Phase == "Succeeded" || pod.Status.Phase == "Failed" {
+			continue
+		}
 		annotations := pod.GetAnnotations()
 		if UUID, uuidExists := annotations["k8s-slurm-injector/uuid"]; uuidExists {
 			if jobId, jobIdExists := annotations["k8s-slurm-injector/jobid"]; jobIdExists {
@@ -201,6 +205,10 @@ func (w *watcher) fetchJobStateOnKubernetes() error {
 			if UUID, uuidExists := annotations["k8s-slurm-injector/uuid"]; uuidExists {
 				podExists := false
 				for _, pod := range pods.Items {
+					// Filter out pods with state `Succeeded` or `Failed`
+					if pod.Status.Phase == "Succeeded" || pod.Status.Phase == "Failed" {
+						continue
+					}
 					if podUUID, podUUIDExists := pod.GetAnnotations()["k8s-slurm-injector/uuid"]; podUUIDExists {
 						if podUUID == UUID {
 							podExists = true
