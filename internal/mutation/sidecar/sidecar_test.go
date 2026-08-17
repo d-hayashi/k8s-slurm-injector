@@ -458,6 +458,14 @@ func TestSidecarinjector_Inject(t *testing.T) {
 					assert.Empty(test.obj.(*corev1.Pod).Spec.Containers[0].Resources.Limits["nvidia.com/gpu"])
 					assert.Empty(test.obj.(*corev1.Pod).Spec.Containers[0].Resources.Requests["nvidia.com/gpu"])
 				}
+				if annotations["k8s-slurm-injector/status"] == "injected" {
+					if ngpus, ngpusExists := annotations["k8s-slurm-injector/ngpus"]; ngpusExists && ngpus != "0" {
+						require.NotNil(test.obj.(*corev1.Pod).Spec.RuntimeClassName)
+						assert.Equal("nvidia", *test.obj.(*corev1.Pod).Spec.RuntimeClassName)
+					} else {
+						assert.Nil(test.obj.(*corev1.Pod).Spec.RuntimeClassName)
+					}
+				}
 			case *batchv1.Job:
 				assert.Equal(test.expObj.(*batchv1.Job).ObjectMeta, test.obj.(*batchv1.Job).ObjectMeta)
 			case *batchv1beta1.CronJob:
