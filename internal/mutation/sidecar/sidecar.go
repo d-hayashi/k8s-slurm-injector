@@ -727,6 +727,12 @@ func (s sidecarinjector) mutateObject(obj metav1.Object, objectNamespace string)
 		ngpus = 0
 	}
 	if ngpus > 0 {
+		// Set runtimeClassName to use nvidia container runtime
+		if podSpec.RuntimeClassName == nil {
+			runtimeClassName := "nvidia"
+			podSpec.RuntimeClassName = &runtimeClassName
+		}
+
 		slurmNumGPUsFree := []string{}
 		for i := 0; i < ngpus; i++ {
 			slurmNumGPUsFree = append(slurmNumGPUsFree, fmt.Sprintf("%d", i))
